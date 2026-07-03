@@ -3,15 +3,25 @@ package router
 import (
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"project-prism/server/internal/handlers"
 )
 
 func New(pool *pgxpool.Pool) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", handlers.Health)
+	r := chi.NewRouter()
 
-	_ = pool // pool will be wired into handlers as routes are added
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.RequestID)
 
-	return mux
+	r.Get("/health", handlers.Health)
+
+	r.Route("/api/v1", func(r chi.Router) {
+		// application and experiment routes will be added here
+		_ = pool
+	})
+
+	return r
 }
