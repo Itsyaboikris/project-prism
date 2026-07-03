@@ -96,6 +96,31 @@ func (s *ApplicationStore) GetByID(ctx context.Context, id string) (*models.Appl
 	return app, nil
 }
 
+func (s *ApplicationStore) GetByAPIKey(ctx context.Context, apiKey string) (*models.Application, error) {
+	const q = `
+		SELECT id, name, api_key, status, created_at, updated_at
+		FROM applications
+		WHERE api_key = $1 AND deleted_at IS NULL`
+
+	app := &models.Application{}
+	err := s.pool.QueryRow(ctx, q, apiKey).Scan(
+		&app.ID,
+		&app.Name,
+		&app.APIKey,
+		&app.Status,
+		&app.CreatedAt,
+		&app.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get application by api key: %w", err)
+	}
+
+	return app, nil
+}
+
 type UpdateApplicationParams struct {
 	Name   string
 	Status *models.ApplicationStatus

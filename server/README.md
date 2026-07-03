@@ -146,6 +146,7 @@ Current routes:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET`  | `/health` | Service health check |
+| `POST` | `/api/v1/assign` | Assign a user to a branch using the application API key |
 | `GET`  | `/api/v1/applications` | List all applications |
 | `POST` | `/api/v1/applications` | Create an application |
 | `GET`  | `/api/v1/applications/{id}` | Get an application |

@@ -4,6 +4,8 @@ Base URL: `http://localhost:8080`
 
 All request and response bodies use `application/json`.
 
+SDK-facing assignment requests authenticate with an application API key sent in either the `X-API-Key` header or `Authorization: Bearer <api_key>`.
+
 ---
 
 ## Health
@@ -19,6 +21,65 @@ Confirms the API is running. No authentication required.
   "service": "project-prism-api"
 }
 ```
+
+---
+
+## Assignment
+
+### `POST /api/v1/assign`
+
+Deterministically assigns a user to a branch for an experiment within the application identified by the API key header.
+
+If the user was previously assigned for the same experiment, the existing branch is returned. Otherwise the server hashes `application_id + experiment_key + user_id` into a stable bucket and applies the experiment's branch weights.
+
+**Headers**
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `X-API-Key` | yes* | Application API key |
+| `Authorization` | yes* | `Bearer <api_key>` |
+
+\* Provide either `X-API-Key` or `Authorization`.
+
+**Request body**
+```json
+{
+  "user_id": "user_123",
+  "experiment_key": "checkout-button-color"
+}
+```
+
+| Field            | Required | Description |
+|------------------|----------|-------------|
+| `user_id`        | yes      | Stable unique user identifier |
+| `experiment_key` | yes      | Experiment key within the authenticated application |
+
+**Response `200`**
+
+Returns a branch object:
+
+```json
+{
+  "id": "018f1e2a-0002-7d8e-9f0a-1b2c3d4e5f6a",
+  "experiment_id": "018f1e2a-0001-7d8e-9f0a-1b2c3d4e5f6a",
+  "key": "variant-a",
+  "name": "Green Button",
+  "weight": 0.5,
+  "metadata_json": { "color": "#22c55e" }
+}
+```
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `400`  | Request body is not valid JSON |
+| `401`  | API key is missing or invalid |
+| `403`  | Application is inactive |
+| `404`  | Experiment not found for this application |
+| `409`  | Experiment is not active/eligible, or its branches are misconfigured |
+| `422`  | `user_id` or `experiment_key` is missing |
+| `500`  | Database or server error |
 
 ---
 

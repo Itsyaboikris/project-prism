@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"project-prism/server/internal/apiauth"
 	"project-prism/server/internal/config"
 	"project-prism/server/internal/handlers"
 	"project-prism/server/internal/store"
@@ -21,7 +22,7 @@ func New(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   cfg.CORSAllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-Id"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-API-Key", "X-Request-Id"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
@@ -31,12 +32,17 @@ func New(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 	appStore := store.NewApplicationStore(pool)
 	expStore := store.NewExperimentStore(pool)
 	branchStore := store.NewBranchStore(pool)
+	assignStore := store.NewAssignmentStore(pool)
+	apiKeyAuth := apiauth.NewMiddleware(appStore)
 
 	appHandler := handlers.NewApplicationHandler(appStore)
 	expHandler := handlers.NewExperimentHandler(expStore, branchStore)
 	branchHandler := handlers.NewBranchHandler(branchStore, expStore)
+	assignHandler := handlers.NewAssignmentHandler(assignStore)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		r.With(apiKeyAuth.RequireAPIKey).Post("/assign", assignHandler.Create)
+
 		r.Route("/applications", func(r chi.Router) {
 			r.Get("/", appHandler.List)
 			r.Post("/", appHandler.Create)
