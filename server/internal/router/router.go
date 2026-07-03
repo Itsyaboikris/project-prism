@@ -28,7 +28,13 @@ func New(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 
 	r.Get("/health", handlers.Health)
 
-	appHandler := handlers.NewApplicationHandler(store.NewApplicationStore(pool))
+	appStore := store.NewApplicationStore(pool)
+	expStore := store.NewExperimentStore(pool)
+	branchStore := store.NewBranchStore(pool)
+
+	appHandler := handlers.NewApplicationHandler(appStore)
+	expHandler := handlers.NewExperimentHandler(expStore, branchStore)
+	branchHandler := handlers.NewBranchHandler(branchStore, expStore)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Route("/applications", func(r chi.Router) {
@@ -37,6 +43,23 @@ func New(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", appHandler.GetByID)
 				r.Put("/", appHandler.Update)
+			})
+		})
+
+		r.Route("/applications/{appID}/experiments", func(r chi.Router) {
+			r.Get("/", expHandler.List)
+			r.Post("/", expHandler.Create)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Get("/", expHandler.GetByID)
+				r.Put("/", expHandler.Update)
+			})
+		})
+
+		r.Route("/applications/{appID}/experiments/{experimentID}/branches", func(r chi.Router) {
+			r.Post("/", branchHandler.Create)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Put("/", branchHandler.Update)
+				r.Delete("/", branchHandler.Delete)
 			})
 		})
 	})

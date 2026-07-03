@@ -148,3 +148,10 @@ Current routes:
 | `POST` | `/api/v1/applications` | Create an application |
 | `GET`  | `/api/v1/applications/{id}` | Get an application |
 | `PUT`  | `/api/v1/applications/{id}` | Update an application |
+| `GET`  | `/api/v1/applications/{appID}/experiments` | List experiments (branches embedded) |
+| `POST` | `/api/v1/applications/{appID}/experiments` | Create an experiment (optional initial branches) |
+| `GET`  | `/api/v1/applications/{appID}/experiments/{id}` | Get an experiment (branches embedded) |
+| `PUT`  | `/api/v1/applications/{appID}/experiments/{id}` | Update an experiment (branches embedded in response) |
+| `POST` | `/api/v1/applications/{appID}/experiments/{experimentID}/branches` | Add a branch to an experiment |
+| `PUT`  | `/api/v1/applications/{appID}/experiments/{experimentID}/branches/{id}` | Update a branch |
+| `DELETE` | `/api/v1/applications/{appID}/experiments/{experimentID}/branches/{id}` | Delete a branch |
