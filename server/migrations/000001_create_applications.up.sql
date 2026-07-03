@@ -2,6 +2,8 @@ CREATE TABLE applications (
     id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     name       TEXT        NOT NULL,
     api_key    TEXT        NOT NULL,
+    status     TEXT        NOT NULL DEFAULT 'active'
+                          CHECK (status IN ('active', 'inactive')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMPTZ

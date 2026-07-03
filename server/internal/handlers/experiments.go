@@ -118,6 +118,10 @@ func (h *ExperimentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "application not found")
 		return
 	}
+	if errors.Is(err, store.ErrInactive) {
+		respond.Error(w, http.StatusConflict, "application is inactive")
+		return
+	}
 	if errors.Is(err, store.ErrConflict) {
 		respond.Error(w, http.StatusConflict, "an experiment with that key already exists for this application")
 		return

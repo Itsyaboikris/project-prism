@@ -11,6 +11,7 @@ import (
 )
 
 var ErrNotFound = errors.New("record not found")
+var ErrInactive = errors.New("record inactive")
 
 type ApplicationStore struct {
 	pool *pgxpool.Pool
@@ -24,13 +25,14 @@ func (s *ApplicationStore) Create(ctx context.Context, name, apiKey string) (*mo
 	const q = `
 		INSERT INTO applications (name, api_key)
 		VALUES ($1, $2)
-		RETURNING id, name, api_key, created_at, updated_at`
+		RETURNING id, name, api_key, status, created_at, updated_at`
 
 	app := &models.Application{}
 	err := s.pool.QueryRow(ctx, q, name, apiKey).Scan(
 		&app.ID,
 		&app.Name,
 		&app.APIKey,
+		&app.Status,
 		&app.CreatedAt,
 		&app.UpdatedAt,
 	)
@@ -43,7 +45,7 @@ func (s *ApplicationStore) Create(ctx context.Context, name, apiKey string) (*mo
 
 func (s *ApplicationStore) List(ctx context.Context) ([]*models.Application, error) {
 	const q = `
-		SELECT id, name, api_key, created_at, updated_at
+		SELECT id, name, api_key, status, created_at, updated_at
 		FROM applications
 		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC`
@@ -57,7 +59,7 @@ func (s *ApplicationStore) List(ctx context.Context) ([]*models.Application, err
 	var apps []*models.Application
 	for rows.Next() {
 		app := &models.Application{}
-		if err := rows.Scan(&app.ID, &app.Name, &app.APIKey, &app.CreatedAt, &app.UpdatedAt); err != nil {
+		if err := rows.Scan(&app.ID, &app.Name, &app.APIKey, &app.Status, &app.CreatedAt, &app.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan application: %w", err)
 		}
 		apps = append(apps, app)
@@ -71,7 +73,7 @@ func (s *ApplicationStore) List(ctx context.Context) ([]*models.Application, err
 
 func (s *ApplicationStore) GetByID(ctx context.Context, id string) (*models.Application, error) {
 	const q = `
-		SELECT id, name, api_key, created_at, updated_at
+		SELECT id, name, api_key, status, created_at, updated_at
 		FROM applications
 		WHERE id = $1 AND deleted_at IS NULL`
 
@@ -80,6 +82,7 @@ func (s *ApplicationStore) GetByID(ctx context.Context, id string) (*models.Appl
 		&app.ID,
 		&app.Name,
 		&app.APIKey,
+		&app.Status,
 		&app.CreatedAt,
 		&app.UpdatedAt,
 	)
@@ -93,18 +96,24 @@ func (s *ApplicationStore) GetByID(ctx context.Context, id string) (*models.Appl
 	return app, nil
 }
 
-func (s *ApplicationStore) Update(ctx context.Context, id, name string) (*models.Application, error) {
+type UpdateApplicationParams struct {
+	Name   string
+	Status *models.ApplicationStatus
+}
+
+func (s *ApplicationStore) Update(ctx context.Context, id string, p UpdateApplicationParams) (*models.Application, error) {
 	const q = `
 		UPDATE applications
-		SET name = $1, updated_at = NOW()
-		WHERE id = $2 AND deleted_at IS NULL
-		RETURNING id, name, api_key, created_at, updated_at`
+		SET name = $1, status = COALESCE($2, status), updated_at = NOW()
+		WHERE id = $3 AND deleted_at IS NULL
+		RETURNING id, name, api_key, status, created_at, updated_at`
 
 	app := &models.Application{}
-	err := s.pool.QueryRow(ctx, q, name, id).Scan(
+	err := s.pool.QueryRow(ctx, q, p.Name, p.Status, id).Scan(
 		&app.ID,
 		&app.Name,
 		&app.APIKey,
+		&app.Status,
 		&app.CreatedAt,
 		&app.UpdatedAt,
 	)

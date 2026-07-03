@@ -53,15 +53,21 @@ func (s *ExperimentStore) Create(ctx context.Context, p CreateExperimentParams) 
 }
 
 func (s *ExperimentStore) ensureApplicationActive(ctx context.Context, db pgxQuerier, applicationID string) error {
-	const query = `SELECT 1 FROM applications WHERE id = $1 AND deleted_at IS NULL`
+	const query = `
+		SELECT status
+		FROM applications
+		WHERE id = $1 AND deleted_at IS NULL`
 
-	var exists int
-	err := db.QueryRow(ctx, query, applicationID).Scan(&exists)
+	var status models.ApplicationStatus
+	err := db.QueryRow(ctx, query, applicationID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("verify application: %w", err)
+	}
+	if status != models.ApplicationStatusActive {
+		return ErrInactive
 	}
 
 	return nil

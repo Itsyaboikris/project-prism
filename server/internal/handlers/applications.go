@@ -18,7 +18,7 @@ type applicationStore interface {
 	Create(ctx context.Context, name, apiKey string) (*models.Application, error)
 	List(ctx context.Context) ([]*models.Application, error)
 	GetByID(ctx context.Context, id string) (*models.Application, error)
-	Update(ctx context.Context, id, name string) (*models.Application, error)
+	Update(ctx context.Context, id string, p store.UpdateApplicationParams) (*models.Application, error)
 	Delete(ctx context.Context, id string) error
 }
 
@@ -35,7 +35,8 @@ type createApplicationRequest struct {
 }
 
 type updateApplicationRequest struct {
-	Name string `json:"name"`
+	Name   string                    `json:"name"`
+	Status *models.ApplicationStatus `json:"status"`
 }
 
 func (h *ApplicationHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -111,8 +112,15 @@ func (h *ApplicationHandler) Update(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusUnprocessableEntity, "name is required")
 		return
 	}
+	if req.Status != nil && !req.Status.Valid() {
+		respond.Error(w, http.StatusUnprocessableEntity, "status must be one of: active, inactive")
+		return
+	}
 
-	app, err := h.store.Update(r.Context(), id, req.Name)
+	app, err := h.store.Update(r.Context(), id, store.UpdateApplicationParams{
+		Name:   req.Name,
+		Status: req.Status,
+	})
 	if errors.Is(err, store.ErrNotFound) {
 		respond.Error(w, http.StatusNotFound, "application not found")
 		return

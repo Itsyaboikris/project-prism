@@ -135,6 +135,8 @@ server/
 | `branches`     | Variants within an experiment with traffic weights |
 | `assignments`  | Tracks which branch a user was assigned to       |
 
+Applications support both `status` (`active` or `inactive`) and soft delete. Inactive applications remain visible, but cannot create new experiments.
+
 ## Current API
 
 See [`API.md`](./API.md) for the full route reference including request/response shapes.
@@ -147,7 +149,7 @@ Current routes:
 | `GET`  | `/api/v1/applications` | List all applications |
 | `POST` | `/api/v1/applications` | Create an application |
 | `GET`  | `/api/v1/applications/{id}` | Get an application |
-| `PUT`  | `/api/v1/applications/{id}` | Update an application |
+| `PUT`  | `/api/v1/applications/{id}` | Update an application name or status |
 | `DELETE` | `/api/v1/applications/{id}` | Soft-delete an application (cascades to experiments and branches) |
 | `GET`  | `/api/v1/applications/{appID}/experiments` | List experiments (branches embedded) |
 | `POST` | `/api/v1/applications/{appID}/experiments` | Create an experiment (optional initial branches) |

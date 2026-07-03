@@ -26,6 +26,8 @@ Confirms the API is running. No authentication required.
 
 An application is the top-level entity in Prism. Each application has a unique API key used to authenticate SDK and ingestion requests.
 
+Applications also have a lifecycle `status`: `active` applications behave normally, while `inactive` applications remain visible but cannot create new experiments.
+
 Records are soft-deleted: `DELETE` sets `deleted_at` rather than removing the row. Soft-deleted applications are excluded from all reads and cascade soft-delete to their experiments and branches. Assignment history is preserved.
 
 ### Application object
@@ -35,6 +37,7 @@ Records are soft-deleted: `DELETE` sets `deleted_at` rather than removing the ro
 | `id`         | `string` | UUID                                             |
 | `name`       | `string` | Human-readable name                              |
 | `api_key`    | `string` | Prefixed API key (`prism_...`). Returned on create. |
+| `status`     | `string` | `active` \| `inactive`                           |
 | `created_at` | `string` | ISO 8601 timestamp                               |
 | `updated_at` | `string` | ISO 8601 timestamp                               |
 
@@ -51,6 +54,7 @@ Returns all applications ordered by creation date, newest first.
     "id": "018f1e2a-3b4c-7d8e-9f0a-1b2c3d4e5f6a",
     "name": "My App",
     "api_key": "prism_abc123...",
+    "status": "active",
     "created_at": "2026-07-03T20:00:00Z",
     "updated_at": "2026-07-03T20:00:00Z"
   }
@@ -84,6 +88,7 @@ Creates a new application and generates its API key.
   "id": "018f1e2a-3b4c-7d8e-9f0a-1b2c3d4e5f6a",
   "name": "My App",
   "api_key": "prism_abc123...",
+  "status": "active",
   "created_at": "2026-07-03T20:00:00Z",
   "updated_at": "2026-07-03T20:00:00Z"
 }
@@ -115,6 +120,7 @@ Returns a single application by its UUID.
   "id": "018f1e2a-3b4c-7d8e-9f0a-1b2c3d4e5f6a",
   "name": "My App",
   "api_key": "prism_abc123...",
+  "status": "active",
   "created_at": "2026-07-03T20:00:00Z",
   "updated_at": "2026-07-03T20:00:00Z"
 }
@@ -131,7 +137,7 @@ Returns a single application by its UUID.
 
 ### `PUT /api/v1/applications/{id}`
 
-Updates the name of an existing application. The `api_key` cannot be changed.
+Updates an existing application. The `api_key` cannot be changed.
 
 **Path parameters**
 
@@ -142,13 +148,15 @@ Updates the name of an existing application. The `api_key` cannot be changed.
 **Request body**
 ```json
 {
-  "name": "Renamed App"
+  "name": "Renamed App",
+  "status": "inactive"
 }
 ```
 
-| Field  | Required | Description       |
-|--------|----------|-------------------|
-| `name` | yes      | Non-empty string  |
+| Field    | Required | Description |
+|----------|----------|-------------|
+| `name`   | yes      | Non-empty string |
+| `status` | no       | `active` \| `inactive`. Omit to keep the current value |
 
 **Response `200`**
 ```json
@@ -156,6 +164,7 @@ Updates the name of an existing application. The `api_key` cannot be changed.
   "id": "018f1e2a-3b4c-7d8e-9f0a-1b2c3d4e5f6a",
   "name": "Renamed App",
   "api_key": "prism_abc123...",
+  "status": "inactive",
   "created_at": "2026-07-03T20:00:00Z",
   "updated_at": "2026-07-03T20:01:00Z"
 }
@@ -167,7 +176,7 @@ Updates the name of an existing application. The `api_key` cannot be changed.
 |--------|-----------|
 | `400`  | Request body is not valid JSON |
 | `404`  | No application with that ID |
-| `422`  | `name` is missing or blank |
+| `422`  | `name` is missing or blank, or `status` is not a valid value |
 | `500`  | Database error |
 
 ---
@@ -209,7 +218,7 @@ All error responses use the same structure:
 
 An experiment belongs to an application and represents a single A/B test. Each experiment has a unique `key` within its application (among active records), a `status` representing its lifecycle, and optional date bounds.
 
-Soft-deleted experiments are excluded from reads. Deleting an experiment also soft-deletes its branches. Experiment keys can be reused after deletion.
+Soft-deleted experiments are excluded from reads. Deleting an experiment also soft-deletes its branches. Experiment keys can be reused after deletion. New experiments can only be created while the parent application is `active`.
 
 ### Experiment object
 
@@ -333,7 +342,7 @@ Creates a new experiment. Status defaults to `draft`. Optionally accepts an init
 |--------|-----------|
 | `400`  | Request body is not valid JSON |
 | `404`  | Application not found |
-| `409`  | An experiment with that `key` already exists for this application |
+| `409`  | Application is inactive, or an experiment with that `key` already exists for this application |
 | `422`  | `key` or `name` is missing, or branch validation fails |
 | `500`  | Database error |
 
