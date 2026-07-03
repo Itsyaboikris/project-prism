@@ -150,6 +150,19 @@ export default function ApplicationDetailPage() {
               </dl>
             </div>
 
+            <Link
+              to={`/applications/${app.id}/experiments`}
+              className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-8 py-6 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
+            >
+              <div>
+                <h2 className="text-base font-medium text-slate-900">Experiments</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Manage A/B tests for this application.
+                </p>
+              </div>
+              <span className="text-slate-400">→</span>
+            </Link>
+
             <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
               <div className="flex items-center justify-between">
                 <div>

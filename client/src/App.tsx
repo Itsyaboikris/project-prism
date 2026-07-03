@@ -1,6 +1,8 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
 import ApplicationsPage from "@/pages/ApplicationsPage"
 import ApplicationDetailPage from "@/pages/ApplicationDetailPage"
+import ExperimentsPage from "@/pages/ExperimentsPage"
+import ExperimentDetailPage from "@/pages/ExperimentDetailPage"
 
 export default function App() {
   return (
@@ -9,6 +11,8 @@ export default function App() {
         <Route path="/" element={<Navigate to="/applications" replace />} />
         <Route path="/applications" element={<ApplicationsPage />} />
         <Route path="/applications/:id" element={<ApplicationDetailPage />} />
+        <Route path="/applications/:appId/experiments" element={<ExperimentsPage />} />
+        <Route path="/applications/:appId/experiments/:id" element={<ExperimentDetailPage />} />
       </Routes>
     </BrowserRouter>
   )
