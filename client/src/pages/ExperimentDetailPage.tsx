@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import {
   experimentsApi,
   EXPERIMENT_STATUSES,
@@ -51,6 +51,7 @@ function formatMetadata(metadata: unknown | null) {
 
 export default function ExperimentDetailPage() {
   const { appId, id } = useParams<{ appId: string; id: string }>()
+  const navigate = useNavigate()
 
   const [experiment, setExperiment] = useState<Experiment | null>(null)
   const [loading, setLoading] = useState(true)
@@ -60,6 +61,8 @@ export default function ExperimentDetailPage() {
   const [form, setForm] = useState<UpdateExperimentInput>({ name: "" })
   const [editLoading, setEditLoading] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const [branchMode, setBranchMode] = useState<"create" | "edit" | null>(null)
   const [editingBranchId, setEditingBranchId] = useState<string | null>(null)
@@ -175,6 +178,11 @@ export default function ExperimentDetailPage() {
         setBranchError("Metadata must be valid JSON.")
         return
       }
+
+      if (metadataJson === null || Array.isArray(metadataJson) || typeof metadataJson !== "object") {
+        setBranchError("Metadata must be a JSON object.")
+        return
+      }
     }
 
     setBranchLoading(true)
@@ -251,6 +259,23 @@ export default function ExperimentDetailPage() {
     if (experiment) initForm(experiment)
     setEditing(false)
     setEditError(null)
+  }
+
+  async function handleDelete() {
+    if (!appId || !id || !experiment) return
+    if (!window.confirm(`Delete "${experiment.name}"? This will also remove its branches.`)) {
+      return
+    }
+
+    setDeleteLoading(true)
+    setDeleteError(null)
+    try {
+      await experimentsApi.delete(appId, id)
+      navigate(`/applications/${appId}/experiments`)
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Failed to delete experiment")
+      setDeleteLoading(false)
+    }
   }
 
   return (
@@ -411,6 +436,14 @@ export default function ExperimentDetailPage() {
                     </div>
                     <div>
                       <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                        Status
+                      </dt>
+                      <dd className="mt-1">
+                        <StatusBadge status={experiment.status} />
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
                         Start date
                       </dt>
                       <dd className="mt-1 text-sm text-slate-700">
@@ -559,6 +592,9 @@ export default function ExperimentDetailPage() {
                       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                       disabled={branchLoading}
                     />
+                    <p className="text-xs text-slate-500">
+                      Optional JSON object for branch-specific configuration.
+                    </p>
                   </div>
 
                   {branchError && <p className="text-sm text-red-600">{branchError}</p>}
@@ -632,6 +668,23 @@ export default function ExperimentDetailPage() {
                   </div>
                 ))}
               </div>
+            </div>
+
+            <div className="rounded-xl border border-red-200 bg-white p-8 shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-base font-medium text-slate-900">Delete Experiment</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    This soft-deletes the experiment and cascades to its branches.
+                  </p>
+                </div>
+                <Button variant="destructive" onClick={handleDelete} disabled={deleteLoading}>
+                  {deleteLoading ? "Deleting…" : "Delete"}
+                </Button>
+              </div>
+              {deleteError && (
+                <p className="mt-3 text-sm text-red-600">{deleteError}</p>
+              )}
             </div>
           </div>
         )}

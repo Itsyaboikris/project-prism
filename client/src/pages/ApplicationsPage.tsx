@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { applicationsApi, type Application } from "@/api/applications"
 import { ApiError } from "@/api/client"
+import { ApplicationStatusBadge } from "@/components/ApplicationStatusBadge"
 import { Button } from "@/components/ui/button"
 
 export default function ApplicationsPage() {
@@ -129,7 +130,10 @@ export default function ApplicationsPage() {
                     className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-6 py-4 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
                   >
                     <div>
-                      <p className="font-medium text-slate-900">{app.name}</p>
+                      <div className="flex items-center gap-3">
+                        <p className="font-medium text-slate-900">{app.name}</p>
+                        <ApplicationStatusBadge status={app.status} />
+                      </div>
                       <p className="mt-0.5 font-mono text-xs text-slate-400">{app.id}</p>
                     </div>
                     <span className="text-xs text-slate-400">

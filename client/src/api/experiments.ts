@@ -48,4 +48,7 @@ export const experimentsApi = {
 
   update: (appId: string, id: string, input: UpdateExperimentInput) =>
     api.put<Experiment>(`/api/v1/applications/${appId}/experiments/${id}`, input),
+
+  delete: (appId: string, id: string) =>
+    api.delete<void>(`/api/v1/applications/${appId}/experiments/${id}`),
 }

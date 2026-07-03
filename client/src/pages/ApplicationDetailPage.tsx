@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { applicationsApi, type Application } from "@/api/applications"
 import { ApiError } from "@/api/client"
+import { ApplicationStatusToggle } from "@/components/ApplicationStatusToggle"
 import { Button } from "@/components/ui/button"
 
 export default function ApplicationDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
 
   const [app, setApp] = useState<Application | null>(null)
   const [loading, setLoading] = useState(true)
@@ -16,10 +18,17 @@ export default function ApplicationDetailPage() {
   const [editLoading, setEditLoading] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
+  const [statusLoading, setStatusLoading] = useState(false)
+  const [statusError, setStatusError] = useState<string | null>(null)
+
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
   const [keyCopied, setKeyCopied] = useState(false)
 
   useEffect(() => {
     if (!id) return
+
     applicationsApi
       .get(id)
       .then((data) => {
@@ -41,10 +50,13 @@ export default function ApplicationDetailPage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     if (!app) return
+
     setEditLoading(true)
     setEditError(null)
     try {
-      const updated = await applicationsApi.update(app.id, editName.trim())
+      const updated = await applicationsApi.update(app.id, {
+        name: editName.trim(),
+      })
       setApp(updated)
       setEditing(false)
     } catch (err) {
@@ -54,12 +66,54 @@ export default function ApplicationDetailPage() {
     }
   }
 
+  async function handleStatusToggle() {
+    if (!app || statusLoading) return
+
+    const previousStatus = app.status
+    const nextStatus = previousStatus === "active" ? "inactive" : "active"
+
+    setStatusLoading(true)
+    setStatusError(null)
+    setApp({ ...app, status: nextStatus })
+
+    try {
+      const updated = await applicationsApi.update(app.id, {
+        name: app.name,
+        status: nextStatus,
+      })
+      setApp(updated)
+    } catch (err) {
+      setApp({ ...app, status: previousStatus })
+      setStatusError(err instanceof ApiError ? err.message : "Failed to update status")
+    } finally {
+      setStatusLoading(false)
+    }
+  }
+
   function handleCopyKey() {
     if (!app?.api_key) return
+
     navigator.clipboard.writeText(app.api_key).then(() => {
       setKeyCopied(true)
       setTimeout(() => setKeyCopied(false), 2000)
     })
+  }
+
+  async function handleDelete() {
+    if (!app) return
+    if (!window.confirm(`Delete "${app.name}"? This will also remove its experiments and branches.`)) {
+      return
+    }
+
+    setDeleteLoading(true)
+    setDeleteError(null)
+    try {
+      await applicationsApi.delete(app.id)
+      navigate("/applications")
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Failed to delete application")
+      setDeleteLoading(false)
+    }
   }
 
   return (
@@ -87,43 +141,71 @@ export default function ApplicationDetailPage() {
         {!loading && !error && app && (
           <div className="mt-6 space-y-6">
             <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-              <div className="flex items-start justify-between gap-4">
-                {editing ? (
-                  <form onSubmit={handleSave} className="flex flex-1 items-center gap-3">
-                    <input
-                      autoFocus
-                      type="text"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                      disabled={editLoading}
-                    />
-                    <Button type="submit" disabled={editLoading || !editName.trim()}>
-                      {editLoading ? "Saving…" : "Save"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => { setEditing(false); setEditName(app.name) }}
-                      disabled={editLoading}
-                    >
-                      Cancel
-                    </Button>
-                  </form>
-                ) : (
-                  <>
-                    <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-                      {app.name}
-                    </h1>
-                    <Button variant="outline" onClick={() => setEditing(true)}>
-                      Rename
-                    </Button>
-                  </>
-                )}
+              <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 flex-1">
+                  {editing ? (
+                    <form onSubmit={handleSave} className="space-y-3">
+                      <div>
+                        <label className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                          Name
+                        </label>
+                        <input
+                          autoFocus
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                          disabled={editLoading}
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap gap-3">
+                        <Button type="submit" disabled={editLoading || !editName.trim()}>
+                          {editLoading ? "Saving…" : "Save"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setEditing(false)
+                            setEditName(app.name)
+                          }}
+                          disabled={editLoading}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+                          {app.name}
+                        </h1>
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={() => setEditing(true)}
+                        disabled={statusLoading}
+                      >
+                        Rename
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <ApplicationStatusToggle
+                  status={app.status}
+                  disabled={statusLoading}
+                  onToggle={handleStatusToggle}
+                />
               </div>
 
               {editError && (
                 <p className="mt-2 text-sm text-red-600">{editError}</p>
+              )}
+              {statusError && (
+                <p className="mt-2 text-sm text-red-600">{statusError}</p>
               )}
 
               <dl className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -157,7 +239,9 @@ export default function ApplicationDetailPage() {
               <div>
                 <h2 className="text-base font-medium text-slate-900">Experiments</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Manage A/B tests for this application.
+                  {app.status === "inactive"
+                    ? "View experiments. New experiments are disabled while the application is inactive."
+                    : "Manage A/B tests for this application."}
                 </p>
               </div>
               <span className="text-slate-400">→</span>
@@ -179,6 +263,23 @@ export default function ApplicationDetailPage() {
               <div className="mt-4 rounded-lg bg-slate-50 px-4 py-3 font-mono text-sm text-slate-700 break-all">
                 {app.api_key}
               </div>
+            </div>
+
+            <div className="rounded-xl border border-red-200 bg-white p-8 shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-base font-medium text-slate-900">Delete Application</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    This soft-deletes the application and cascades to its experiments and branches.
+                  </p>
+                </div>
+                <Button variant="destructive" onClick={handleDelete} disabled={deleteLoading}>
+                  {deleteLoading ? "Deleting…" : "Delete"}
+                </Button>
+              </div>
+              {deleteError && (
+                <p className="mt-3 text-sm text-red-600">{deleteError}</p>
+              )}
             </div>
           </div>
         )}

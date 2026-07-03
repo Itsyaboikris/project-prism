@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom"
 import { applicationsApi, type Application } from "@/api/applications"
 import { experimentsApi, type Experiment } from "@/api/experiments"
 import { ApiError } from "@/api/client"
+import { ApplicationStatusToggle } from "@/components/ApplicationStatusToggle"
 import { Button } from "@/components/ui/button"
 import { slugifyKey } from "@/lib/slugify"
 import { StatusBadge } from "../components/StatusBadge"
@@ -11,6 +12,7 @@ interface BranchDraft {
   key: string
   name: string
   weight: string
+  metadataText: string
   isKeyCustom: boolean
 }
 
@@ -28,6 +30,7 @@ function createEmptyBranchDraft(): BranchDraft {
     key: "",
     name: "",
     weight: "0.5",
+    metadataText: "",
     isKeyCustom: false,
   }
 }
@@ -56,6 +59,8 @@ export default function ExperimentsPage() {
   const [isKeyCustom, setIsKeyCustom] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [createLoading, setCreateLoading] = useState(false)
+  const [statusLoading, setStatusLoading] = useState(false)
+  const [statusError, setStatusError] = useState<string | null>(null)
   const firstInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -72,6 +77,8 @@ export default function ExperimentsPage() {
   }, [appId])
 
   function openCreateForm() {
+    if (app?.status === "inactive") return
+
     setCreating(true)
     setForm({
       key: "",
@@ -119,6 +126,10 @@ export default function ExperimentsPage() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!appId) return
+    if (app?.status === "inactive") {
+      setCreateError("Inactive applications cannot create new experiments.")
+      return
+    }
 
     const populatedBranches = form.branches.filter(
       (branch) => branch.name.trim() || branch.key.trim() || branch.weight.trim(),
@@ -135,6 +146,19 @@ export default function ExperimentsPage() {
         setCreateError("Each branch weight must be a number between 0 and 1.")
         return
       }
+
+      if (branch.metadataText.trim()) {
+        try {
+          const metadata = JSON.parse(branch.metadataText)
+          if (metadata === null || Array.isArray(metadata) || typeof metadata !== "object") {
+            setCreateError("Branch metadata must be a JSON object.")
+            return
+          }
+        } catch {
+          setCreateError("Branch metadata must be valid JSON.")
+          return
+        }
+      }
     }
 
     setCreateLoading(true)
@@ -150,6 +174,7 @@ export default function ExperimentsPage() {
           key: branch.key.trim(),
           name: branch.name.trim(),
           weight: Number(branch.weight),
+          metadata_json: branch.metadataText.trim() ? JSON.parse(branch.metadataText) : null,
         })),
       })
       setExperiments((prev) => [exp, ...prev])
@@ -163,6 +188,33 @@ export default function ExperimentsPage() {
     }
   }
 
+  async function handleStatusToggle() {
+    if (!app || statusLoading) return
+
+    const previousStatus = app.status
+    const nextStatus = previousStatus === "active" ? "inactive" : "active"
+
+    setStatusLoading(true)
+    setStatusError(null)
+    setApp({ ...app, status: nextStatus })
+
+    try {
+      const updated = await applicationsApi.update(app.id, {
+        name: app.name,
+        status: nextStatus,
+      })
+      setApp(updated)
+      if (updated.status === "inactive") {
+        setCreating(false)
+      }
+    } catch (err) {
+      setApp({ ...app, status: previousStatus })
+      setStatusError(err instanceof ApiError ? err.message : "Failed to update status")
+    } finally {
+      setStatusLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-4xl px-6 py-12">
@@ -173,17 +225,46 @@ export default function ExperimentsPage() {
           ← {app ? app.name : "Application"}
         </Link>
 
-        <div className="mt-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-              Experiments
-            </h1>
-            {app && <p className="mt-1 text-sm text-slate-500">{app.name}</p>}
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
+                    Experiments
+                  </h1>
+                  {app && (
+                    <p className="mt-1 text-sm text-slate-500">{app.name}</p>
+                  )}
+                </div>
+                {!creating && !loading && !error && (
+                  <Button onClick={openCreateForm} disabled={app?.status === "inactive" || statusLoading}>
+                    New experiment
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {app && (
+              <ApplicationStatusToggle
+                status={app.status}
+                disabled={statusLoading}
+                onToggle={handleStatusToggle}
+              />
+            )}
           </div>
-          {!creating && !loading && !error && (
-            <Button onClick={openCreateForm}>New experiment</Button>
+
+          {statusError && (
+            <p className="mt-3 text-sm text-red-600">{statusError}</p>
           )}
         </div>
+
+        {app?.status === "inactive" && !loading && !error && (
+          <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            This application is inactive. Existing experiments remain visible, but creating new
+            experiments is disabled until the application is reactivated.
+          </div>
+        )}
 
         {creating && (
           <form
@@ -249,6 +330,18 @@ export default function ExperimentsPage() {
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                 disabled={createLoading}
               />
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Status
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <StatusBadge status="draft" />
+                <p className="text-sm text-slate-600">
+                  New experiments are created as <span className="font-medium">draft</span>.
+                </p>
+              </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -393,6 +486,32 @@ export default function ExperimentsPage() {
                       </Button>
                     </div>
                   </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                      Metadata JSON
+                    </label>
+                    <textarea
+                      value={branch.metadataText}
+                      onChange={(e) =>
+                        setForm((current) => ({
+                          ...current,
+                          branches: current.branches.map((currentBranch, branchIndex) =>
+                            branchIndex === index
+                              ? { ...currentBranch, metadataText: e.target.value }
+                              : currentBranch,
+                          ),
+                        }))
+                      }
+                      rows={4}
+                      placeholder='{"color":"#22c55e"}'
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                      disabled={createLoading}
+                    />
+                    <p className="text-xs text-slate-500">
+                      Optional JSON object for branch-specific configuration.
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -436,6 +555,7 @@ export default function ExperimentsPage() {
               <p className="text-sm text-slate-500">No experiments yet.</p>
               <button
                 onClick={openCreateForm}
+                disabled={app?.status === "inactive"}
                 className="mt-2 text-sm font-medium text-slate-900 underline-offset-4 hover:underline"
               >
                 Create your first experiment
