@@ -27,20 +27,30 @@ go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@lat
 
 ```bash
 cp server/.env.example server/.env
-# Edit server/.env with your Postgres credentials
+# Edit server/.env if you are not using the default Docker Postgres setup
 ```
 
-### 2. Create the database
+### 2. Start Postgres
 
-```sql
-CREATE DATABASE prism;
+```bash
+make db-up
 ```
+
+This starts a local Postgres container on `localhost:5432` with:
+
+- database: `prism`
+- user: `postgres`
+- password: `postgres`
+
+If you use those defaults, `server/.env.example` already matches the container. Update `server/.env` when you change DB credentials, ports, or point the app at a different Postgres instance.
 
 ### 3. Run migrations
 
 ```bash
 make migrate-up
 ```
+
+The migration command reads `DATABASE_URL` from `server/.env` automatically.
 
 ### 4. Start the apps
 
@@ -61,6 +71,9 @@ make server-dev
 | `make client-dev`    | Start the Vite dev server                         |
 | `make server-dev`    | Start the Go server with Air hot reload           |
 | `make server-run`    | Start the Go server without hot reload            |
+| `make db-up`         | Start the Postgres container                      |
+| `make db-down`       | Stop Docker services and remove containers        |
+| `make db-logs`       | Tail the Postgres container logs                  |
 | `make migrate-up`    | Apply all pending migrations                      |
 | `make migrate-down`  | Roll back the most recent migration               |
 

@@ -37,12 +37,26 @@ The required variables are:
 
 | Variable       | Description                        | Default                                                       |
 |----------------|------------------------------------|---------------------------------------------------------------|
-| `DATABASE_URL` | PostgreSQL connection string       | `postgres://postgres:password@localhost:5432/prism?sslmode=disable` |
+| `DATABASE_URL` | PostgreSQL connection string       | `postgres://postgres:postgres@localhost:5432/prism?sslmode=disable` |
 | `PORT`         | HTTP port the server listens on    | `8080`                                                        |
 
 ## Database
 
-Create the Prism database in Postgres first:
+If you are using the repo's Docker setup from the project root, start Postgres with:
+
+```bash
+make db-up
+```
+
+That container already creates the `prism` database with:
+
+- user: `postgres`
+- password: `postgres`
+- port: `5432`
+
+Update `.env` if you are not using those defaults.
+
+If you are using a separate Postgres instance, create the Prism database first:
 
 ```sql
 CREATE DATABASE prism;
@@ -53,6 +67,8 @@ Then run migrations:
 ```bash
 make migrate-up
 ```
+
+The migration targets read `DATABASE_URL` from `server/.env` automatically when that file exists.
 
 Roll back one step:
 
