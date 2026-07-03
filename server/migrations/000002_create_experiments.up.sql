@@ -10,7 +10,8 @@ CREATE TABLE experiments (
     end_date       TIMESTAMPTZ,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (application_id, key)
+    deleted_at     TIMESTAMPTZ
 );
 
-CREATE INDEX experiments_application_id_idx ON experiments (application_id);
+CREATE UNIQUE INDEX experiments_application_key_active_idx ON experiments (application_id, key) WHERE deleted_at IS NULL;
+CREATE INDEX experiments_application_id_idx ON experiments (application_id) WHERE deleted_at IS NULL;

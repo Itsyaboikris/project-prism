@@ -42,10 +42,29 @@ func NewExperimentStore(pool *pgxpool.Pool) *ExperimentStore {
 }
 
 func (s *ExperimentStore) Create(ctx context.Context, p CreateExperimentParams) (*models.Experiment, error) {
+	if err := s.ensureApplicationActive(ctx, s.pool, p.ApplicationID); err != nil {
+		return nil, err
+	}
+
 	if len(p.Branches) > 0 {
 		return s.createWithBranches(ctx, p)
 	}
 	return s.createExperiment(ctx, s.pool, p)
+}
+
+func (s *ExperimentStore) ensureApplicationActive(ctx context.Context, db pgxQuerier, applicationID string) error {
+	const query = `SELECT 1 FROM applications WHERE id = $1 AND deleted_at IS NULL`
+
+	var exists int
+	err := db.QueryRow(ctx, query, applicationID).Scan(&exists)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("verify application: %w", err)
+	}
+
+	return nil
 }
 
 func (s *ExperimentStore) createExperiment(ctx context.Context, q pgxQuerier, p CreateExperimentParams) (*models.Experiment, error) {
@@ -107,7 +126,7 @@ func (s *ExperimentStore) List(ctx context.Context, applicationID string) ([]*mo
 	const q = `
 		SELECT id, application_id, key, name, description, status, start_date, end_date, created_at, updated_at
 		FROM experiments
-		WHERE application_id = $1
+		WHERE application_id = $1 AND deleted_at IS NULL
 		ORDER BY created_at DESC`
 
 	rows, err := s.pool.Query(ctx, q, applicationID)
@@ -138,7 +157,7 @@ func (s *ExperimentStore) GetByID(ctx context.Context, applicationID, id string)
 	const q = `
 		SELECT id, application_id, key, name, description, status, start_date, end_date, created_at, updated_at
 		FROM experiments
-		WHERE id = $1 AND application_id = $2`
+		WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
 
 	exp := &models.Experiment{Branches: []*models.Branch{}}
 	err := s.pool.QueryRow(ctx, q, id, applicationID).Scan(
@@ -159,7 +178,7 @@ func (s *ExperimentStore) Update(ctx context.Context, applicationID, id string, 
 	const q = `
 		UPDATE experiments
 		SET name = $1, description = $2, status = $3, start_date = $4, end_date = $5, updated_at = NOW()
-		WHERE id = $6 AND application_id = $7
+		WHERE id = $6 AND application_id = $7 AND deleted_at IS NULL
 		RETURNING id, application_id, key, name, description, status, start_date, end_date, created_at, updated_at`
 
 	exp := &models.Experiment{Branches: []*models.Branch{}}
@@ -192,6 +211,43 @@ func classifyExperimentErr(op string, err error) error {
 	return fmt.Errorf("%s: %w", op, err)
 }
 
+func (s *ExperimentStore) Delete(ctx context.Context, applicationID, id string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const softDeleteBranches = `
+		UPDATE branches
+		SET deleted_at = NOW()
+		WHERE experiment_id = $1 AND deleted_at IS NULL`
+
+	if _, err := tx.Exec(ctx, softDeleteBranches, id); err != nil {
+		return fmt.Errorf("delete experiment branches: %w", err)
+	}
+
+	const softDeleteExperiment = `
+		UPDATE experiments
+		SET deleted_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
+
+	tag, err := tx.Exec(ctx, softDeleteExperiment, id, applicationID)
+	if err != nil {
+		return fmt.Errorf("delete experiment: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// pgxQuerier is satisfied by both *pgxpool.Pool and pgx.Tx.
 type pgxQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }

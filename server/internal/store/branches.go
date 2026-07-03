@@ -65,7 +65,7 @@ func (s *BranchStore) ListByExperimentIDs(ctx context.Context, experimentIDs []s
 	const q = `
 		SELECT id, experiment_id, key, name, weight, metadata_json
 		FROM branches
-		WHERE experiment_id = ANY($1)
+		WHERE experiment_id = ANY($1) AND deleted_at IS NULL
 		ORDER BY experiment_id, name`
 
 	rows, err := s.pool.Query(ctx, q, experimentIDs)
@@ -93,7 +93,7 @@ func (s *BranchStore) GetByID(ctx context.Context, experimentID, id string) (*mo
 	const q = `
 		SELECT id, experiment_id, key, name, weight, metadata_json
 		FROM branches
-		WHERE id = $1 AND experiment_id = $2`
+		WHERE id = $1 AND experiment_id = $2 AND deleted_at IS NULL`
 
 	b := &models.Branch{}
 	err := s.pool.QueryRow(ctx, q, id, experimentID).Scan(
@@ -113,7 +113,7 @@ func (s *BranchStore) Update(ctx context.Context, experimentID, id string, p Upd
 	const q = `
 		UPDATE branches
 		SET name = $1, weight = $2, metadata_json = $3
-		WHERE id = $4 AND experiment_id = $5
+		WHERE id = $4 AND experiment_id = $5 AND deleted_at IS NULL
 		RETURNING id, experiment_id, key, name, weight, metadata_json`
 
 	b := &models.Branch{}
@@ -131,7 +131,10 @@ func (s *BranchStore) Update(ctx context.Context, experimentID, id string, p Upd
 }
 
 func (s *BranchStore) Delete(ctx context.Context, experimentID, id string) error {
-	const q = `DELETE FROM branches WHERE id = $1 AND experiment_id = $2`
+	const q = `
+		UPDATE branches
+		SET deleted_at = NOW()
+		WHERE id = $1 AND experiment_id = $2 AND deleted_at IS NULL`
 
 	tag, err := s.pool.Exec(ctx, q, id, experimentID)
 	if err != nil {

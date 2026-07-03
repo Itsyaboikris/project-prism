@@ -43,6 +43,7 @@ func New(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", appHandler.GetByID)
 				r.Put("/", appHandler.Update)
+				r.Delete("/", appHandler.Delete)
 			})
 		})
 
@@ -52,6 +53,7 @@ func New(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", expHandler.GetByID)
 				r.Put("/", expHandler.Update)
+				r.Delete("/", expHandler.Delete)
 			})
 		})
 

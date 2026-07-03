@@ -26,6 +26,8 @@ Confirms the API is running. No authentication required.
 
 An application is the top-level entity in Prism. Each application has a unique API key used to authenticate SDK and ingestion requests.
 
+Records are soft-deleted: `DELETE` sets `deleted_at` rather than removing the row. Soft-deleted applications are excluded from all reads and cascade soft-delete to their experiments and branches. Assignment history is preserved.
+
 ### Application object
 
 | Field        | Type     | Description                                      |
@@ -170,6 +172,27 @@ Updates the name of an existing application. The `api_key` cannot be changed.
 
 ---
 
+### `DELETE /api/v1/applications/{id}`
+
+Soft-deletes an application and cascades to its experiments and branches.
+
+**Path parameters**
+
+| Parameter | Description         |
+|-----------|---------------------|
+| `id`      | Application UUID    |
+
+**Response `204`** — no body.
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `404`  | No active application with that ID |
+| `500`  | Database error |
+
+---
+
 ## Error response shape
 
 All error responses use the same structure:
@@ -184,7 +207,9 @@ All error responses use the same structure:
 
 ## Experiments
 
-An experiment belongs to an application and represents a single A/B test. Each experiment has a unique `key` within its application, a `status` representing its lifecycle, and optional date bounds.
+An experiment belongs to an application and represents a single A/B test. Each experiment has a unique `key` within its application (among active records), a `status` representing its lifecycle, and optional date bounds.
+
+Soft-deleted experiments are excluded from reads. Deleting an experiment also soft-deletes its branches. Experiment keys can be reused after deletion.
 
 ### Experiment object
 
@@ -379,6 +404,28 @@ Updates a experiment. `key` cannot be changed after creation.
 
 ---
 
+### `DELETE /api/v1/applications/{appID}/experiments/{id}`
+
+Soft-deletes an experiment and cascades to its branches.
+
+**Path parameters**
+
+| Parameter | Description          |
+|-----------|----------------------|
+| `appID`   | Application UUID     |
+| `id`      | Experiment UUID      |
+
+**Response `204`** — no body.
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `404`  | Experiment not found or does not belong to this application |
+| `500`  | Database error |
+
+---
+
 ## Branches
 
 A branch represents a variant within an experiment. Each branch has a `key` (unique within the experiment), a display `name`, a `weight` (0–1 decimal), and an optional `metadata_json` payload for arbitrary variant configuration.
@@ -492,7 +539,7 @@ Updates a branch. `key` cannot be changed.
 
 ### `DELETE /api/v1/applications/{appID}/experiments/{experimentID}/branches/{id}`
 
-Deletes a branch.
+Soft-deletes a branch.
 
 **Path parameters**
 

@@ -1,6 +1,9 @@
 package models
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Branch struct {
 	ID           string          `json:"id"`
@@ -9,4 +12,5 @@ type Branch struct {
 	Name         string          `json:"name"`
 	Weight       float64         `json:"weight"`
 	MetadataJSON json.RawMessage `json:"metadata_json"`
+	DeletedAt    *time.Time      `json:"-"`
 }

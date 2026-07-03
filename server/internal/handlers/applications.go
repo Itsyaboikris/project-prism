@@ -19,6 +19,7 @@ type applicationStore interface {
 	List(ctx context.Context) ([]*models.Application, error)
 	GetByID(ctx context.Context, id string) (*models.Application, error)
 	Update(ctx context.Context, id, name string) (*models.Application, error)
+	Delete(ctx context.Context, id string) error
 }
 
 type ApplicationHandler struct {
@@ -122,4 +123,19 @@ func (h *ApplicationHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respond.JSON(w, http.StatusOK, app)
+}
+
+func (h *ApplicationHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	if err := h.store.Delete(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			respond.Error(w, http.StatusNotFound, "application not found")
+			return
+		}
+		respond.Error(w, http.StatusInternalServerError, "failed to delete application")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

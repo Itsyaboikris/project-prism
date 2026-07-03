@@ -45,6 +45,7 @@ func (s *ApplicationStore) List(ctx context.Context) ([]*models.Application, err
 	const q = `
 		SELECT id, name, api_key, created_at, updated_at
 		FROM applications
+		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC`
 
 	rows, err := s.pool.Query(ctx, q)
@@ -72,7 +73,7 @@ func (s *ApplicationStore) GetByID(ctx context.Context, id string) (*models.Appl
 	const q = `
 		SELECT id, name, api_key, created_at, updated_at
 		FROM applications
-		WHERE id = $1`
+		WHERE id = $1 AND deleted_at IS NULL`
 
 	app := &models.Application{}
 	err := s.pool.QueryRow(ctx, q, id).Scan(
@@ -96,7 +97,7 @@ func (s *ApplicationStore) Update(ctx context.Context, id, name string) (*models
 	const q = `
 		UPDATE applications
 		SET name = $1, updated_at = NOW()
-		WHERE id = $2
+		WHERE id = $2 AND deleted_at IS NULL
 		RETURNING id, name, api_key, created_at, updated_at`
 
 	app := &models.Application{}
@@ -115,4 +116,53 @@ func (s *ApplicationStore) Update(ctx context.Context, id, name string) (*models
 	}
 
 	return app, nil
+}
+
+func (s *ApplicationStore) Delete(ctx context.Context, id string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const softDeleteBranches = `
+		UPDATE branches b
+		SET deleted_at = NOW()
+		FROM experiments e
+		WHERE b.experiment_id = e.id
+		  AND e.application_id = $1
+		  AND b.deleted_at IS NULL
+		  AND e.deleted_at IS NULL`
+
+	if _, err := tx.Exec(ctx, softDeleteBranches, id); err != nil {
+		return fmt.Errorf("delete application branches: %w", err)
+	}
+
+	const softDeleteExperiments = `
+		UPDATE experiments
+		SET deleted_at = NOW(), updated_at = NOW()
+		WHERE application_id = $1 AND deleted_at IS NULL`
+
+	if _, err := tx.Exec(ctx, softDeleteExperiments, id); err != nil {
+		return fmt.Errorf("delete application experiments: %w", err)
+	}
+
+	const softDeleteApplication = `
+		UPDATE applications
+		SET deleted_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL`
+
+	tag, err := tx.Exec(ctx, softDeleteApplication, id)
+	if err != nil {
+		return fmt.Errorf("delete application: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
 }

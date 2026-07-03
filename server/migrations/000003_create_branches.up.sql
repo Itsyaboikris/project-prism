@@ -5,7 +5,8 @@ CREATE TABLE branches (
     name          TEXT          NOT NULL,
     weight        NUMERIC(5, 4) NOT NULL CHECK (weight >= 0 AND weight <= 1),
     metadata_json JSONB,
-    UNIQUE (experiment_id, key)
+    deleted_at    TIMESTAMPTZ
 );
 
-CREATE INDEX branches_experiment_id_idx ON branches (experiment_id);
+CREATE UNIQUE INDEX branches_experiment_key_active_idx ON branches (experiment_id, key) WHERE deleted_at IS NULL;
+CREATE INDEX branches_experiment_id_idx ON branches (experiment_id) WHERE deleted_at IS NULL;

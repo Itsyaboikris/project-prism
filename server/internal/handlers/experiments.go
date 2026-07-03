@@ -19,6 +19,7 @@ type experimentStore interface {
 	List(ctx context.Context, applicationID string) ([]*models.Experiment, error)
 	GetByID(ctx context.Context, applicationID, id string) (*models.Experiment, error)
 	Update(ctx context.Context, applicationID, id string, p store.UpdateExperimentParams) (*models.Experiment, error)
+	Delete(ctx context.Context, applicationID, id string) error
 }
 
 type experimentBranchStore interface {
@@ -238,4 +239,20 @@ func (h *ExperimentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respond.JSON(w, http.StatusOK, exp)
+}
+
+func (h *ExperimentHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	id := chi.URLParam(r, "id")
+
+	if err := h.store.Delete(r.Context(), appID, id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			respond.Error(w, http.StatusNotFound, "experiment not found")
+			return
+		}
+		respond.Error(w, http.StatusInternalServerError, "failed to delete experiment")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
