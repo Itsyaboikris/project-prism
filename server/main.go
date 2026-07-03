@@ -30,7 +30,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              cfg.Address(),
-		Handler:           router.New(pool),
+		Handler:           router.New(pool, cfg),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

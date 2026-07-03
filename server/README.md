@@ -137,6 +137,14 @@ server/
 
 ## Current API
 
-### Health Check
+See [`API.md`](./API.md) for the full route reference including request/response shapes.
 
-`GET /health` — confirms the API is reachable.
+Current routes:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`  | `/health` | Service health check |
+| `GET`  | `/api/v1/applications` | List all applications |
+| `POST` | `/api/v1/applications` | Create an application |
+| `GET`  | `/api/v1/applications/{id}` | Get an application |
+| `PUT`  | `/api/v1/applications/{id}` | Update an application |
