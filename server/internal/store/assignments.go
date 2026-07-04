@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"project-prism/server/internal/models"
 )
 
@@ -23,10 +22,10 @@ type AssignParams struct {
 }
 
 type AssignmentStore struct {
-	pool *pgxpool.Pool
+	pool DB
 }
 
-func NewAssignmentStore(pool *pgxpool.Pool) *AssignmentStore {
+func NewAssignmentStore(pool DB) *AssignmentStore {
 	return &AssignmentStore{pool: pool}
 }
 

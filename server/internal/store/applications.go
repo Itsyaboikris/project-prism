@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"project-prism/server/internal/models"
 )
 
@@ -14,10 +13,10 @@ var ErrNotFound = errors.New("record not found")
 var ErrInactive = errors.New("record inactive")
 
 type ApplicationStore struct {
-	pool *pgxpool.Pool
+	pool DB
 }
 
-func NewApplicationStore(pool *pgxpool.Pool) *ApplicationStore {
+func NewApplicationStore(pool DB) *ApplicationStore {
 	return &ApplicationStore{pool: pool}
 }
 

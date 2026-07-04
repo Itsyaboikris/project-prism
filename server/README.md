@@ -1,6 +1,8 @@
-# Prism Server
+# Prism Server v1
 
 The Prism server is the Go API for the A/B testing platform.
+
+This document describes the version 1 backend surface: application management, experiments, branches, and the public assignment endpoint.
 
 ## Stack
 

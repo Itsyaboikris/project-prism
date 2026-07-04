@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"project-prism/server/internal/models"
 )
 
@@ -27,10 +26,10 @@ type UpdateBranchParams struct {
 }
 
 type BranchStore struct {
-	pool *pgxpool.Pool
+	pool DB
 }
 
-func NewBranchStore(pool *pgxpool.Pool) *BranchStore {
+func NewBranchStore(pool DB) *BranchStore {
 	return &BranchStore{pool: pool}
 }
 

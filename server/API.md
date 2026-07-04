@@ -1,4 +1,4 @@
-# Prism API Reference
+# Prism API Reference v1
 
 Base URL: `http://localhost:8080`
 

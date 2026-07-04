@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrConflict = errors.New("record already exists")
@@ -34,10 +33,10 @@ type UpdateExperimentParams struct {
 }
 
 type ExperimentStore struct {
-	pool *pgxpool.Pool
+	pool DB
 }
 
-func NewExperimentStore(pool *pgxpool.Pool) *ExperimentStore {
+func NewExperimentStore(pool DB) *ExperimentStore {
 	return &ExperimentStore{pool: pool}
 }
 
