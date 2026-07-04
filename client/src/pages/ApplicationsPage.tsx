@@ -4,6 +4,7 @@ import { applicationsApi, type Application } from "@/api/applications"
 import { ApiError } from "@/api/client"
 import { ApplicationStatusBadge } from "@/components/ApplicationStatusBadge"
 import { Button } from "@/components/ui/button"
+import { APPLICATION_NAME_MAX_LENGTH, validateApplicationName } from "@/lib/applicationName"
 
 export default function ApplicationsPage() {
   const [apps, setApps] = useState<Application[]>([])
@@ -33,6 +34,11 @@ export default function ApplicationsPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
+    const nameError = validateApplicationName(newName)
+    if (nameError) {
+      setCreateError(nameError)
+      return
+    }
     setCreateLoading(true)
     setCreateError(null)
     try {
@@ -75,10 +81,14 @@ export default function ApplicationsPage() {
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="Application name"
+                maxLength={APPLICATION_NAME_MAX_LENGTH}
                 className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                 disabled={createLoading}
               />
-              <Button type="submit" disabled={createLoading || !newName.trim()}>
+              <Button
+                type="submit"
+                disabled={createLoading || Boolean(validateApplicationName(newName))}
+              >
                 {createLoading ? "Creating…" : "Create"}
               </Button>
               <Button
@@ -129,14 +139,14 @@ export default function ApplicationsPage() {
                     to={`/applications/${app.id}`}
                     className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-6 py-4 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
                   >
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-3">
-                        <p className="font-medium text-slate-900">{app.name}</p>
+                        <p className="wrap-break-word font-medium text-slate-900">{app.name}</p>
                         <ApplicationStatusBadge status={app.status} />
                       </div>
                       <p className="mt-0.5 font-mono text-xs text-slate-400">{app.id}</p>
                     </div>
-                    <span className="text-xs text-slate-400">
+                    <span className="ml-4 shrink-0 text-xs text-slate-400">
                       {new Date(app.created_at).toLocaleDateString()}
                     </span>
                   </Link>

@@ -85,6 +85,16 @@ func TestApplicationHandlerCreate(t *testing.T) {
 		}
 	})
 
+	t.Run("name too long", func(t *testing.T) {
+		handler := NewApplicationHandler(&fakeApplicationStore{})
+		rec := httptest.NewRecorder()
+		body := `{"name":"` + strings.Repeat("a", applicationNameMaxLength+1) + `"}`
+		handler.Create(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("expected status %d, got %d", http.StatusUnprocessableEntity, rec.Code)
+		}
+	})
+
 	t.Run("store error", func(t *testing.T) {
 		handler := NewApplicationHandler(&fakeApplicationStore{
 			createFn: func(context.Context, string, string) (*models.Application, error) {
@@ -214,6 +224,17 @@ func TestApplicationHandlerUpdate(t *testing.T) {
 		handler := NewApplicationHandler(&fakeApplicationStore{})
 		rec := httptest.NewRecorder()
 		req := newRequestWithURLParams(http.MethodPut, "/", `{"name":" "}`, map[string]string{"id": "app_123"})
+		handler.Update(rec, req)
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("expected status %d, got %d", http.StatusUnprocessableEntity, rec.Code)
+		}
+	})
+
+	t.Run("name too long", func(t *testing.T) {
+		handler := NewApplicationHandler(&fakeApplicationStore{})
+		rec := httptest.NewRecorder()
+		body := `{"name":"` + strings.Repeat("a", applicationNameMaxLength+1) + `"}`
+		req := newRequestWithURLParams(http.MethodPut, "/", body, map[string]string{"id": "app_123"})
 		handler.Update(rec, req)
 		if rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("expected status %d, got %d", http.StatusUnprocessableEntity, rec.Code)

@@ -22,9 +22,24 @@ export interface UpdateBranchInput {
   metadata_json?: unknown | null
 }
 
+export interface SaveBranchInput {
+  id?: string
+  key: string
+  name: string
+  weight: number
+  metadata_json?: unknown | null
+}
+
+export interface SaveBranchesInput {
+  branches: SaveBranchInput[]
+}
+
 export const branchesApi = {
   create: (appId: string, experimentId: string, input: CreateBranchInput) =>
     api.post<Branch>(`/api/v1/applications/${appId}/experiments/${experimentId}/branches`, input),
+
+  saveAll: (appId: string, experimentId: string, input: SaveBranchesInput) =>
+    api.put<Branch[]>(`/api/v1/applications/${appId}/experiments/${experimentId}/branches`, input),
 
   update: (appId: string, experimentId: string, id: string, input: UpdateBranchInput) =>
     api.put<Branch>(`/api/v1/applications/${appId}/experiments/${experimentId}/branches/${id}`, input),

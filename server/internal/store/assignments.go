@@ -221,8 +221,6 @@ func selectBranch(applicationID, experimentKey, userID string, branches []*model
 		return nil, ErrMisconfigured
 	}
 
-	// Branch weights are stored at 4 decimal places, so a 10,000 bucket hash
-	// gives stable deterministic assignment without requiring randomness.
 	sum := sha256.Sum256([]byte(applicationID + ":" + experimentKey + ":" + userID))
 	bucket := binary.BigEndian.Uint64(sum[:8]) % 10000
 	target := float64(bucket) / 10000.0

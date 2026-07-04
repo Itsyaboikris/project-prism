@@ -7,13 +7,38 @@ import {
   type ExperimentStatus,
   type UpdateExperimentInput,
 } from "@/api/experiments"
-import { branchesApi, type Branch } from "@/api/branches"
+import { branchesApi, type Branch, type SaveBranchInput } from "@/api/branches"
 import { ApiError } from "@/api/client"
 import { Button } from "@/components/ui/button"
+import {
+  BRANCH_WEIGHT_PERCENT_TOTAL,
+  formatBranchWeightPercent,
+  formatBranchWeightValue,
+  inferStoredBranchWeightScale,
+  sumWeights,
+  toDisplayBranchWeight,
+  toStoredBranchWeight,
+  validateDisplayBranchWeights,
+} from "@/lib/branchWeights"
+import {
+  BRANCH_KEY_MAX_LENGTH,
+  BRANCH_NAME_MAX_LENGTH,
+  parseBranchMetadataText,
+  validateBranchKey,
+  validateBranchName,
+} from "@/lib/branchFields"
+import { validateExperimentDateRange } from "@/lib/experimentDates"
+import {
+  EXPERIMENT_DESCRIPTION_MAX_LENGTH,
+  EXPERIMENT_NAME_MAX_LENGTH,
+  validateExperimentDescription,
+  validateExperimentName,
+} from "@/lib/experimentFields"
 import { StatusBadge } from "@/components/StatusBadge"
 import { slugifyKey } from "@/lib/slugify"
 
-interface BranchFormState {
+interface BranchDraft {
+  id?: string
   key: string
   name: string
   weight: string
@@ -30,14 +55,29 @@ function fromDatetimeLocal(value: string): string | null {
   return value ? new Date(value).toISOString() : null
 }
 
-function createEmptyBranchForm(): BranchFormState {
+function createEmptyBranchDraft(weight = "0"): BranchDraft {
   return {
     key: "",
     name: "",
-    weight: "0.5",
+    weight,
     metadataText: "",
     isKeyCustom: false,
   }
+}
+
+function createBranchDraftFromBranch(branch: Branch, branchWeightScale: "percent" | "fraction"): BranchDraft {
+  return {
+    id: branch.id,
+    key: branch.key,
+    name: branch.name,
+    weight: formatBranchWeightValue(toDisplayBranchWeight(branch.weight, branchWeightScale)),
+    metadataText: branch.metadata_json == null ? "" : JSON.stringify(branch.metadata_json, null, 2),
+    isKeyCustom: true,
+  }
+}
+
+function getRemainingWeight(weights: number[]): string {
+  return formatBranchWeightValue(Math.max(0, BRANCH_WEIGHT_PERCENT_TOTAL - sumWeights(weights)))
 }
 
 function formatBranchCount(count: number) {
@@ -47,6 +87,14 @@ function formatBranchCount(count: number) {
 function formatMetadata(metadata: unknown | null) {
   if (metadata == null) return "No metadata"
   return JSON.stringify(metadata, null, 2)
+}
+
+function validateBranchDraft(branch: BranchDraft): string | null {
+  return (
+    validateBranchName(branch.name) ??
+    validateBranchKey(branch.key) ??
+    parseBranchMetadataText(branch.metadataText).error
+  )
 }
 
 export default function ExperimentDetailPage() {
@@ -64,12 +112,19 @@ export default function ExperimentDetailPage() {
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  const [branchMode, setBranchMode] = useState<"create" | "edit" | null>(null)
-  const [editingBranchId, setEditingBranchId] = useState<string | null>(null)
-  const [branchForm, setBranchForm] = useState<BranchFormState>(createEmptyBranchForm())
+  const [editingBranches, setEditingBranches] = useState(false)
+  const [branchDrafts, setBranchDrafts] = useState<BranchDraft[]>([])
   const [branchLoading, setBranchLoading] = useState(false)
   const [branchError, setBranchError] = useState<string | null>(null)
-  const [deletingBranchId, setDeletingBranchId] = useState<string | null>(null)
+
+  const branchWeightScale = inferStoredBranchWeightScale(
+    experiment?.branches.map((branch) => branch.weight) ?? [],
+  )
+  const branchDisplayWeights = experiment
+    ? experiment.branches.map((branch) => toDisplayBranchWeight(branch.weight, branchWeightScale))
+    : []
+  const currentBranchWeightTotal = sumWeights(branchDisplayWeights)
+  const currentBranchWeightError = validateDisplayBranchWeights(branchDisplayWeights)
 
   useEffect(() => {
     if (!appId || !id) return
@@ -101,36 +156,39 @@ export default function ExperimentDetailPage() {
     })
   }
 
-  function openCreateBranchForm() {
-    setBranchMode("create")
-    setEditingBranchId(null)
-    setBranchForm(createEmptyBranchForm())
+  function openBranchEditor() {
+    if (!experiment) return
+    setEditingBranches(true)
+    setBranchDrafts(
+      experiment.branches.map((branch) => createBranchDraftFromBranch(branch, branchWeightScale)),
+    )
     setBranchError(null)
   }
 
-  function openEditBranchForm(branch: Branch) {
-    setBranchMode("edit")
-    setEditingBranchId(branch.id)
-    setBranchForm({
-      key: branch.key,
-      name: branch.name,
-      weight: String(branch.weight),
-      metadataText: branch.metadata_json == null ? "" : JSON.stringify(branch.metadata_json, null, 2),
-      isKeyCustom: true,
-    })
-    setBranchError(null)
-  }
-
-  function closeBranchForm() {
-    setBranchMode(null)
-    setEditingBranchId(null)
-    setBranchForm(createEmptyBranchForm())
+  function cancelBranchEditor() {
+    setEditingBranches(false)
+    setBranchDrafts([])
     setBranchError(null)
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     if (!appId || !id || !experiment) return
+    const nameError = validateExperimentName(form.name)
+    if (nameError) {
+      setEditError(nameError)
+      return
+    }
+    const descriptionError = validateExperimentDescription(form.description)
+    if (descriptionError) {
+      setEditError(descriptionError)
+      return
+    }
+    const dateError = validateExperimentDateRange(form.start_date, form.end_date)
+    if (dateError) {
+      setEditError(dateError)
+      return
+    }
     setEditLoading(true)
     setEditError(null)
     try {
@@ -152,106 +210,109 @@ export default function ExperimentDetailPage() {
     }
   }
 
-  async function handleBranchSubmit(e: React.FormEvent) {
+  function handleBranchNameChange(index: number, name: string) {
+    setBranchDrafts((current) =>
+      current.map((branch, branchIndex) => {
+        if (branchIndex !== index) return branch
+        const generatedKey = slugifyKey(name)
+        return {
+          ...branch,
+          name,
+          key: branch.isKeyCustom ? branch.key : generatedKey,
+        }
+      }),
+    )
+  }
+
+  function handleBranchKeyChange(index: number, key: string) {
+    setBranchDrafts((current) =>
+      current.map((branch, branchIndex) =>
+        branchIndex === index
+          ? {
+              ...branch,
+              key,
+              isKeyCustom: key !== slugifyKey(branch.name),
+            }
+          : branch,
+      ),
+    )
+  }
+
+  function addBranchDraft() {
+    setBranchDrafts((current) => [
+      ...current,
+      createEmptyBranchDraft(
+        getRemainingWeight(
+          current
+            .map((branch) => Number(branch.weight))
+            .filter((weight) => !Number.isNaN(weight)),
+        ),
+      ),
+    ])
+  }
+
+  function removeBranchDraft(index: number) {
+    setBranchDrafts((current) => current.filter((_, branchIndex) => branchIndex !== index))
+  }
+
+  async function handleSaveBranches(e: React.FormEvent) {
     e.preventDefault()
-    if (!appId || !id) return
+    if (!appId || !id || !experiment) return
 
-    const weight = Number(branchForm.weight)
-    if (!branchForm.name.trim()) {
-      setBranchError("Branch name is required.")
-      return
-    }
-    if (branchMode === "create" && !branchForm.key.trim()) {
-      setBranchError("Branch key is required.")
-      return
-    }
-    if (Number.isNaN(weight) || weight < 0 || weight > 1) {
-      setBranchError("Branch weight must be a number between 0 and 1.")
-      return
-    }
+    const payload: SaveBranchInput[] = []
+    const displayWeights: number[] = []
 
-    let metadataJson: unknown | null = null
-    if (branchForm.metadataText.trim()) {
-      try {
-        metadataJson = JSON.parse(branchForm.metadataText)
-      } catch {
-        setBranchError("Metadata must be valid JSON.")
+    for (const branch of branchDrafts) {
+      const branchFieldError = validateBranchDraft(branch)
+      if (branchFieldError) {
+        setBranchError(branchFieldError)
         return
       }
 
-      if (metadataJson === null || Array.isArray(metadataJson) || typeof metadataJson !== "object") {
-        setBranchError("Metadata must be a JSON object.")
+      const displayWeight = Number(branch.weight)
+      displayWeights.push(displayWeight)
+
+      const metadataResult = parseBranchMetadataText(branch.metadataText)
+      if (metadataResult.error) {
+        setBranchError(metadataResult.error)
         return
       }
+
+      payload.push({
+        id: branch.id,
+        key: branch.key.trim(),
+        name: branch.name.trim(),
+        weight: toStoredBranchWeight(displayWeight, branchWeightScale),
+        metadata_json: metadataResult.value,
+      })
+    }
+
+    const weightError = validateDisplayBranchWeights(displayWeights)
+    if (weightError) {
+      setBranchError(weightError)
+      return
     }
 
     setBranchLoading(true)
     setBranchError(null)
 
     try {
-      if (branchMode === "create") {
-        const branch = await branchesApi.create(appId, id, {
-          key: branchForm.key.trim(),
-          name: branchForm.name.trim(),
-          weight,
-          metadata_json: metadataJson,
-        })
-        setExperiment((current) =>
-          current
-            ? {
-                ...current,
-                branches: [...current.branches, branch],
-              }
-            : current,
-        )
-      } else if (branchMode === "edit" && editingBranchId) {
-        const updated = await branchesApi.update(appId, id, editingBranchId, {
-          name: branchForm.name.trim(),
-          weight,
-          metadata_json: metadataJson,
-        })
-        setExperiment((current) =>
-          current
-            ? {
-                ...current,
-                branches: current.branches.map((branch) =>
-                  branch.id === updated.id ? updated : branch,
-                ),
-              }
-            : current,
-        )
-      }
-
-      closeBranchForm()
-    } catch (err) {
-      setBranchError(err instanceof ApiError ? err.message : "Failed to save branch")
-    } finally {
-      setBranchLoading(false)
-    }
-  }
-
-  async function handleDeleteBranch(branchId: string) {
-    if (!appId || !id) return
-    if (!window.confirm("Delete this branch?")) return
-
-    setDeletingBranchId(branchId)
-    try {
-      await branchesApi.delete(appId, id, branchId)
+      const updatedBranches = await branchesApi.saveAll(appId, id, {
+        branches: payload,
+      })
       setExperiment((current) =>
         current
           ? {
               ...current,
-              branches: current.branches.filter((branch) => branch.id !== branchId),
+              branches: updatedBranches,
             }
           : current,
       )
-      if (editingBranchId === branchId) {
-        closeBranchForm()
-      }
+      cancelBranchEditor()
     } catch (err) {
-      setBranchError(err instanceof ApiError ? err.message : "Failed to delete branch")
+      setBranchError(err instanceof ApiError ? err.message : "Failed to save branches")
     } finally {
-      setDeletingBranchId(null)
+      setBranchLoading(false)
     }
   }
 
@@ -277,6 +338,14 @@ export default function ExperimentDetailPage() {
       setDeleteLoading(false)
     }
   }
+
+  const draftBranchWeights = branchDrafts.map((branch) => Number(branch.weight))
+  const draftBranchWeightTotal = sumWeights(
+    draftBranchWeights.filter((weight) => !Number.isNaN(weight)),
+  )
+  const draftBranchWeightError = validateDisplayBranchWeights(draftBranchWeights)
+  const draftBranchFieldError =
+    branchDrafts.map((branch) => validateBranchDraft(branch)).find(Boolean) ?? null
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -315,6 +384,7 @@ export default function ExperimentDetailPage() {
                         type="text"
                         value={form.name}
                         onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                        maxLength={EXPERIMENT_NAME_MAX_LENGTH}
                         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                         disabled={editLoading}
                       />
@@ -351,6 +421,7 @@ export default function ExperimentDetailPage() {
                         setForm((f) => ({ ...f, description: e.target.value }))
                       }
                       rows={2}
+                      maxLength={EXPERIMENT_DESCRIPTION_MAX_LENGTH}
                       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                       disabled={editLoading}
                     />
@@ -391,7 +462,14 @@ export default function ExperimentDetailPage() {
                   {editError && <p className="text-sm text-red-600">{editError}</p>}
 
                   <div className="flex gap-3">
-                    <Button type="submit" disabled={editLoading || !form.name.trim()}>
+                    <Button
+                      type="submit"
+                      disabled={
+                        editLoading ||
+                        Boolean(validateExperimentName(form.name)) ||
+                        Boolean(validateExperimentDescription(form.description))
+                      }
+                    >
                       {editLoading ? "Saving…" : "Save"}
                     </Button>
                     <Button type="button" variant="outline" onClick={handleCancel} disabled={editLoading}>
@@ -488,114 +566,151 @@ export default function ExperimentDetailPage() {
                 <div>
                   <h2 className="text-lg font-medium text-slate-900">Branches</h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    Manage the variants that participate in this experiment.
+                    Manage the variants that participate in this experiment. Weights should add up
+                    to 100%.
                   </p>
+                  {experiment.branches.length > 0 && (
+                    <p
+                      className={`mt-2 text-sm ${currentBranchWeightError ? "text-red-600" : "text-slate-500"}`}
+                    >
+                      Current allocation: {formatBranchWeightValue(currentBranchWeightTotal)}%.
+                    </p>
+                  )}
                 </div>
-                {branchMode !== "create" && (
-                  <Button variant="outline" onClick={openCreateBranchForm}>
-                    Add branch
+                {!editingBranches && (
+                  <Button variant="outline" onClick={openBranchEditor}>
+                    {experiment.branches.length === 0 ? "Add branches" : "Edit branches"}
                   </Button>
                 )}
               </div>
 
-              {branchMode && (
+              {editingBranches && (
                 <form
-                  onSubmit={handleBranchSubmit}
-                  className="mt-6 space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4"
+                  onSubmit={handleSaveBranches}
+                  className="mt-6 space-y-5 rounded-lg border border-slate-200 bg-slate-50 p-4"
                 >
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-medium text-slate-900">
-                      {branchMode === "create" ? "New branch" : "Edit branch"}
+                      Bulk edit branches
                     </h3>
-                    <Button type="button" variant="outline" size="sm" onClick={closeBranchForm} disabled={branchLoading}>
-                      Cancel
-                    </Button>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                        Name <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        autoFocus
-                        type="text"
-                        value={branchForm.name}
-                        onChange={(e) => {
-                          const name = e.target.value
-                          const generatedKey = slugifyKey(name)
-                          setBranchForm((current) => ({
-                            ...current,
-                            name,
-                            key:
-                              branchMode === "edit" || current.isKeyCustom
-                                ? current.key
-                                : generatedKey,
-                          }))
-                        }}
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                        disabled={branchLoading}
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                        Key {branchMode === "create" && <span className="text-red-500">*</span>}
-                      </label>
-                      <input
-                        type="text"
-                        value={branchForm.key}
-                        onChange={(e) =>
-                          setBranchForm((current) => ({
-                            ...current,
-                            key: e.target.value,
-                            isKeyCustom: e.target.value !== slugifyKey(current.name),
-                          }))
-                        }
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
-                        disabled={branchLoading || branchMode === "edit"}
-                      />
+                    <div className="flex gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={addBranchDraft} disabled={branchLoading}>
+                        Add branch
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" onClick={cancelBranchEditor} disabled={branchLoading}>
+                        Cancel
+                      </Button>
                     </div>
                   </div>
 
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                        Weight <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="1"
-                        step="0.01"
-                        value={branchForm.weight}
-                        onChange={(e) =>
-                          setBranchForm((current) => ({ ...current, weight: e.target.value }))
-                        }
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                        disabled={branchLoading}
-                      />
-                    </div>
-                  </div>
+                  <p className={`text-sm ${draftBranchWeightError ? "text-red-600" : "text-slate-500"}`}>
+                    Draft total: {formatBranchWeightValue(draftBranchWeightTotal)}%.
+                  </p>
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                      Metadata JSON
-                    </label>
-                    <textarea
-                      value={branchForm.metadataText}
-                      onChange={(e) =>
-                        setBranchForm((current) => ({ ...current, metadataText: e.target.value }))
-                      }
-                      rows={5}
-                      placeholder='{"color":"#22c55e"}'
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                      disabled={branchLoading}
-                    />
-                    <p className="text-xs text-slate-500">
-                      Optional JSON object for branch-specific configuration.
-                    </p>
-                  </div>
+                  {branchDrafts.length === 0 && (
+                    <p className="text-sm text-slate-500">No branches added yet.</p>
+                  )}
+
+                  {branchDrafts.map((branch, index) => (
+                    <div
+                      key={branch.id ?? `new-${index}`}
+                      className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
+                    >
+                      <div className="grid gap-3 sm:grid-cols-[1.2fr_1.2fr_0.8fr_auto]">
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                            Name
+                          </label>
+                          <input
+                            autoFocus={index === 0}
+                            type="text"
+                            value={branch.name}
+                            onChange={(e) => handleBranchNameChange(index, e.target.value)}
+                            placeholder="Control"
+                            maxLength={BRANCH_NAME_MAX_LENGTH}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                            disabled={branchLoading}
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                            Key
+                          </label>
+                          <input
+                            type="text"
+                            value={branch.key}
+                            onChange={(e) => handleBranchKeyChange(index, e.target.value)}
+                            placeholder="control"
+                            maxLength={BRANCH_KEY_MAX_LENGTH}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+                            disabled={branchLoading || Boolean(branch.id)}
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                            Weight
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            value={branch.weight}
+                            onChange={(e) =>
+                              setBranchDrafts((current) =>
+                                current.map((currentBranch, branchIndex) =>
+                                  branchIndex === index
+                                    ? { ...currentBranch, weight: e.target.value }
+                                    : currentBranch,
+                                ),
+                              )
+                            }
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                            disabled={branchLoading}
+                          />
+                        </div>
+
+                        <div className="flex items-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => removeBranchDraft(index)}
+                            disabled={branchLoading}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                          Metadata JSON
+                        </label>
+                        <textarea
+                          value={branch.metadataText}
+                          onChange={(e) =>
+                            setBranchDrafts((current) =>
+                              current.map((currentBranch, branchIndex) =>
+                                branchIndex === index
+                                  ? { ...currentBranch, metadataText: e.target.value }
+                                  : currentBranch,
+                              ),
+                            )
+                          }
+                          rows={4}
+                          placeholder='{"color":"#22c55e"}'
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                          disabled={branchLoading}
+                        />
+                        <p className="text-xs text-slate-500">
+                          Optional JSON object for branch-specific configuration.
+                        </p>
+                      </div>
+                    </div>
+                  ))}
 
                   {branchError && <p className="text-sm text-red-600">{branchError}</p>}
 
@@ -604,70 +719,53 @@ export default function ExperimentDetailPage() {
                       type="submit"
                       disabled={
                         branchLoading ||
-                        !branchForm.name.trim() ||
-                        (branchMode === "create" && !branchForm.key.trim())
+                        Boolean(draftBranchFieldError) ||
+                        Boolean(draftBranchWeightError)
                       }
                     >
-                      {branchLoading ? "Saving…" : branchMode === "create" ? "Create branch" : "Save branch"}
+                      {branchLoading ? "Saving…" : "Save branch changes"}
                     </Button>
                   </div>
                 </form>
               )}
 
-              <div className="mt-6 space-y-3">
-                {experiment.branches.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
-                    No branches yet.
-                  </div>
-                )}
+              {!editingBranches && (
+                <div className="mt-6 space-y-3">
+                  {experiment.branches.length === 0 && (
+                    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+                      No branches yet.
+                    </div>
+                  )}
 
-                {experiment.branches.map((branch) => (
-                  <div
-                    key={branch.id}
-                    className="rounded-lg border border-slate-200 bg-slate-50 p-4"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <h3 className="font-medium text-slate-900">{branch.name}</h3>
-                          <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
-                            weight {branch.weight}
-                          </span>
+                  {experiment.branches.map((branch) => (
+                    <div
+                      key={branch.id}
+                      className="rounded-lg border border-slate-200 bg-slate-50 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <h3 className="font-medium text-slate-900">{branch.name}</h3>
+                            <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
+                              {formatBranchWeightPercent(branch.weight, branchWeightScale)}
+                            </span>
+                          </div>
+                          <p className="mt-1 font-mono text-xs text-slate-500">{branch.key}</p>
                         </div>
-                        <p className="mt-1 font-mono text-xs text-slate-500">{branch.key}</p>
                       </div>
 
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openEditBranchForm(branch)}
-                          disabled={branchLoading || deletingBranchId === branch.id}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDeleteBranch(branch.id)}
-                          disabled={branchLoading || deletingBranchId === branch.id}
-                        >
-                          {deletingBranchId === branch.id ? "Deleting…" : "Delete"}
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="mt-4">
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-                        Metadata
-                      </p>
-                      <pre className="overflow-x-auto rounded-lg bg-white p-3 text-xs text-slate-700">
+                      <div className="mt-4">
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                          Metadata
+                        </p>
+                        <pre className="overflow-x-auto rounded-lg bg-white p-3 text-xs text-slate-700">
 {formatMetadata(branch.metadata_json)}
-                      </pre>
+                        </pre>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="rounded-xl border border-red-200 bg-white p-8 shadow-sm">

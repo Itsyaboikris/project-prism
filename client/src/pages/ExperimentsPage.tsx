@@ -3,8 +3,30 @@ import { Link, useParams } from "react-router-dom"
 import { applicationsApi, type Application } from "@/api/applications"
 import { experimentsApi, type Experiment } from "@/api/experiments"
 import { ApiError } from "@/api/client"
-import { ApplicationStatusToggle } from "@/components/ApplicationStatusToggle"
+import { ExperimentStatusToggle } from "@/components/ExperimentStatusToggle"
 import { Button } from "@/components/ui/button"
+import {
+  BRANCH_WEIGHT_PERCENT_TOTAL,
+  formatBranchWeightValue,
+  sumWeights,
+  validateDisplayBranchWeights,
+} from "@/lib/branchWeights"
+import {
+  BRANCH_KEY_MAX_LENGTH,
+  BRANCH_NAME_MAX_LENGTH,
+  parseBranchMetadataText,
+  validateBranchKey,
+  validateBranchName,
+} from "@/lib/branchFields"
+import { validateExperimentDateRange } from "@/lib/experimentDates"
+import {
+  EXPERIMENT_DESCRIPTION_MAX_LENGTH,
+  EXPERIMENT_KEY_MAX_LENGTH,
+  EXPERIMENT_NAME_MAX_LENGTH,
+  validateExperimentDescription,
+  validateExperimentKey,
+  validateExperimentName,
+} from "@/lib/experimentFields"
 import { slugifyKey } from "@/lib/slugify"
 import { StatusBadge } from "../components/StatusBadge"
 
@@ -25,18 +47,30 @@ interface CreateExperimentForm {
   branches: BranchDraft[]
 }
 
-function createEmptyBranchDraft(): BranchDraft {
+function createEmptyBranchDraft(weight = "0"): BranchDraft {
   return {
     key: "",
     name: "",
-    weight: "0.5",
+    weight,
     metadataText: "",
     isKeyCustom: false,
   }
 }
 
+function getRemainingWeight(weights: number[]): string {
+  return formatBranchWeightValue(Math.max(0, BRANCH_WEIGHT_PERCENT_TOTAL - sumWeights(weights)))
+}
+
 function formatBranchCount(count: number) {
   return `${count} branch${count === 1 ? "" : "es"}`
+}
+
+function validateBranchDraft(branch: BranchDraft): string | null {
+  return (
+    validateBranchName(branch.name) ??
+    validateBranchKey(branch.key) ??
+    parseBranchMetadataText(branch.metadataText).error
+  )
 }
 
 export default function ExperimentsPage() {
@@ -59,9 +93,24 @@ export default function ExperimentsPage() {
   const [isKeyCustom, setIsKeyCustom] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [createLoading, setCreateLoading] = useState(false)
-  const [statusLoading, setStatusLoading] = useState(false)
-  const [statusError, setStatusError] = useState<string | null>(null)
+  const [togglingExperimentId, setTogglingExperimentId] = useState<string | null>(null)
+  const [toggleError, setToggleError] = useState<string | null>(null)
   const firstInputRef = useRef<HTMLInputElement>(null)
+
+  const populatedBranches = form.branches.filter(
+    (branch) =>
+      branch.name.trim() ||
+      branch.key.trim() ||
+      branch.weight.trim() ||
+      branch.metadataText.trim(),
+  )
+  const populatedBranchWeights = populatedBranches.map((branch) => Number(branch.weight))
+  const populatedBranchWeightTotal = sumWeights(
+    populatedBranchWeights.filter((weight) => !Number.isNaN(weight)),
+  )
+  const populatedBranchWeightError = validateDisplayBranchWeights(populatedBranchWeights)
+  const populatedBranchFieldError =
+    populatedBranches.map((branch) => validateBranchDraft(branch)).find(Boolean) ?? null
 
   useEffect(() => {
     if (!appId) return
@@ -130,35 +179,43 @@ export default function ExperimentsPage() {
       setCreateError("Inactive applications cannot create new experiments.")
       return
     }
+    const nameError = validateExperimentName(form.name)
+    if (nameError) {
+      setCreateError(nameError)
+      return
+    }
+    const keyError = validateExperimentKey(form.key)
+    if (keyError) {
+      setCreateError(keyError)
+      return
+    }
+    const descriptionError = validateExperimentDescription(form.description)
+    if (descriptionError) {
+      setCreateError(descriptionError)
+      return
+    }
+    const dateError = validateExperimentDateRange(form.start_date, form.end_date)
+    if (dateError) {
+      setCreateError(dateError)
+      return
+    }
 
-    const populatedBranches = form.branches.filter(
-      (branch) => branch.name.trim() || branch.key.trim() || branch.weight.trim(),
-    )
-
+    const branchWeights: number[] = []
     for (const branch of populatedBranches) {
-      if (!branch.name.trim() || !branch.key.trim()) {
-        setCreateError("Each branch needs both a name and a key.")
+      const branchFieldError = validateBranchDraft(branch)
+      if (branchFieldError) {
+        setCreateError(branchFieldError)
         return
       }
 
       const weight = Number(branch.weight)
-      if (Number.isNaN(weight) || weight < 0 || weight > 1) {
-        setCreateError("Each branch weight must be a number between 0 and 1.")
-        return
-      }
+      branchWeights.push(weight)
+    }
 
-      if (branch.metadataText.trim()) {
-        try {
-          const metadata = JSON.parse(branch.metadataText)
-          if (metadata === null || Array.isArray(metadata) || typeof metadata !== "object") {
-            setCreateError("Branch metadata must be a JSON object.")
-            return
-          }
-        } catch {
-          setCreateError("Branch metadata must be valid JSON.")
-          return
-        }
-      }
+    const branchWeightError = validateDisplayBranchWeights(branchWeights)
+    if (branchWeightError) {
+      setCreateError(branchWeightError)
+      return
     }
 
     setCreateLoading(true)
@@ -174,7 +231,7 @@ export default function ExperimentsPage() {
           key: branch.key.trim(),
           name: branch.name.trim(),
           weight: Number(branch.weight),
-          metadata_json: branch.metadataText.trim() ? JSON.parse(branch.metadataText) : null,
+          metadata_json: parseBranchMetadataText(branch.metadataText).value,
         })),
       })
       setExperiments((prev) => [exp, ...prev])
@@ -188,30 +245,42 @@ export default function ExperimentsPage() {
     }
   }
 
-  async function handleStatusToggle() {
-    if (!app || statusLoading) return
+  async function handleExperimentToggle(experiment: Experiment) {
+    if (!appId || togglingExperimentId || experiment.status === "completed") return
 
-    const previousStatus = app.status
-    const nextStatus = previousStatus === "active" ? "inactive" : "active"
+    const previousStatus = experiment.status
+    const nextStatus = previousStatus === "active" ? "paused" : "active"
 
-    setStatusLoading(true)
-    setStatusError(null)
-    setApp({ ...app, status: nextStatus })
+    setTogglingExperimentId(experiment.id)
+    setToggleError(null)
+    setExperiments((current) =>
+      current.map((item) =>
+        item.id === experiment.id ? { ...item, status: nextStatus } : item,
+      ),
+    )
 
     try {
-      const updated = await applicationsApi.update(app.id, {
-        name: app.name,
+      const updated = await experimentsApi.update(appId, experiment.id, {
+        name: experiment.name,
+        description: experiment.description,
         status: nextStatus,
+        start_date: experiment.start_date,
+        end_date: experiment.end_date,
       })
-      setApp(updated)
-      if (updated.status === "inactive") {
-        setCreating(false)
-      }
+      setExperiments((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      )
     } catch (err) {
-      setApp({ ...app, status: previousStatus })
-      setStatusError(err instanceof ApiError ? err.message : "Failed to update status")
+      setExperiments((current) =>
+        current.map((item) =>
+          item.id === experiment.id ? { ...item, status: previousStatus } : item,
+        ),
+      )
+      setToggleError(
+        err instanceof ApiError ? err.message : "Failed to update experiment status",
+      )
     } finally {
-      setStatusLoading(false)
+      setTogglingExperimentId(null)
     }
   }
 
@@ -238,25 +307,13 @@ export default function ExperimentsPage() {
                   )}
                 </div>
                 {!creating && !loading && !error && (
-                  <Button onClick={openCreateForm} disabled={app?.status === "inactive" || statusLoading}>
+                  <Button onClick={openCreateForm} disabled={app?.status === "inactive"}>
                     New experiment
                   </Button>
                 )}
               </div>
             </div>
-
-            {app && (
-              <ApplicationStatusToggle
-                status={app.status}
-                disabled={statusLoading}
-                onToggle={handleStatusToggle}
-              />
-            )}
           </div>
-
-          {statusError && (
-            <p className="mt-3 text-sm text-red-600">{statusError}</p>
-          )}
         </div>
 
         {app?.status === "inactive" && !loading && !error && (
@@ -292,6 +349,7 @@ export default function ExperimentsPage() {
                     }))
                   }}
                   placeholder="Checkout Button Color"
+                  maxLength={EXPERIMENT_NAME_MAX_LENGTH}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                   disabled={createLoading}
                 />
@@ -310,6 +368,7 @@ export default function ExperimentsPage() {
                     setIsKeyCustom(key !== slugifyKey(form.name))
                   }}
                   placeholder="checkout-button-color"
+                  maxLength={EXPERIMENT_KEY_MAX_LENGTH}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                   disabled={createLoading}
                 />
@@ -327,6 +386,7 @@ export default function ExperimentsPage() {
                 }
                 placeholder="Optional description"
                 rows={2}
+                maxLength={EXPERIMENT_DESCRIPTION_MAX_LENGTH}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                 disabled={createLoading}
               />
@@ -387,8 +447,15 @@ export default function ExperimentsPage() {
                 <div>
                   <h3 className="text-sm font-medium text-slate-900">Initial branches</h3>
                   <p className="text-xs text-slate-500">
-                    Optional variants to create with the experiment.
+                    Optional variants to create with the experiment. Weights should add up to 100%.
                   </p>
+                  {form.branches.length > 0 && (
+                    <p
+                      className={`mt-1 text-xs ${populatedBranchWeightError ? "text-red-600" : "text-slate-500"}`}
+                    >
+                      Current total: {formatBranchWeightValue(populatedBranchWeightTotal)}%.
+                    </p>
+                  )}
                 </div>
                 <Button
                   type="button"
@@ -397,7 +464,16 @@ export default function ExperimentsPage() {
                   onClick={() =>
                     setForm((current) => ({
                       ...current,
-                      branches: [...current.branches, createEmptyBranchDraft()],
+                      branches: [
+                        ...current.branches,
+                        createEmptyBranchDraft(
+                          getRemainingWeight(
+                            current.branches
+                              .map((branch) => Number(branch.weight))
+                              .filter((weight) => !Number.isNaN(weight)),
+                          ),
+                        ),
+                      ],
                     }))
                   }
                   disabled={createLoading}
@@ -425,6 +501,7 @@ export default function ExperimentsPage() {
                         value={branch.name}
                         onChange={(e) => handleBranchNameChange(index, e.target.value)}
                         placeholder="Control"
+                        maxLength={BRANCH_NAME_MAX_LENGTH}
                         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                         disabled={createLoading}
                       />
@@ -439,6 +516,7 @@ export default function ExperimentsPage() {
                         value={branch.key}
                         onChange={(e) => handleBranchKeyChange(index, e.target.value)}
                         placeholder="control"
+                        maxLength={BRANCH_KEY_MAX_LENGTH}
                         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                         disabled={createLoading}
                       />
@@ -451,7 +529,7 @@ export default function ExperimentsPage() {
                       <input
                         type="number"
                         min="0"
-                        max="1"
+                        max="100"
                         step="0.01"
                         value={branch.weight}
                         onChange={(e) =>
@@ -521,7 +599,14 @@ export default function ExperimentsPage() {
             <div className="flex gap-3">
               <Button
                 type="submit"
-                disabled={createLoading || !form.key.trim() || !form.name.trim()}
+                disabled={
+                  createLoading ||
+                  Boolean(validateExperimentKey(form.key)) ||
+                  Boolean(validateExperimentName(form.name)) ||
+                  Boolean(validateExperimentDescription(form.description)) ||
+                  Boolean(populatedBranchFieldError) ||
+                  Boolean(populatedBranchWeightError)
+                }
               >
                 {createLoading ? "Creating…" : "Create"}
               </Button>
@@ -564,33 +649,50 @@ export default function ExperimentsPage() {
           )}
 
           {!loading && !error && experiments.length > 0 && (
-            <ul className="space-y-3">
+            <div className="space-y-3">
+              {toggleError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {toggleError}
+                </div>
+              )}
+              <ul className="space-y-3">
               {experiments.map((exp) => (
                 <li key={exp.id}>
-                  <Link
-                    to={`/applications/${appId}/experiments/${exp.id}`}
-                    className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-6 py-4 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-3">
-                        <p className="font-medium text-slate-900">{exp.name}</p>
-                        <StatusBadge status={exp.status} />
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                          {formatBranchCount(exp.branches.length)}
+                  <div className="rounded-xl border border-slate-200 bg-white px-6 py-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-4">
+                      <Link
+                        to={`/applications/${appId}/experiments/${exp.id}`}
+                        className="min-w-0 flex-1 transition-colors hover:text-slate-700"
+                      >
+                        <div className="flex items-center gap-3">
+                          <p className="font-medium text-slate-900">{exp.name}</p>
+                          <StatusBadge status={exp.status} />
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                            {formatBranchCount(exp.branches.length)}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 font-mono text-xs text-slate-400">{exp.key}</p>
+                        {exp.description && (
+                          <p className="mt-1 truncate text-sm text-slate-500">{exp.description}</p>
+                        )}
+                      </Link>
+
+                      <div className="flex shrink-0 items-center gap-4">
+                        <span className="text-xs text-slate-400">
+                          {new Date(exp.created_at).toLocaleDateString()}
                         </span>
+                        <ExperimentStatusToggle
+                          status={exp.status}
+                          disabled={togglingExperimentId === exp.id}
+                          onToggle={() => handleExperimentToggle(exp)}
+                        />
                       </div>
-                      <p className="mt-0.5 font-mono text-xs text-slate-400">{exp.key}</p>
-                      {exp.description && (
-                        <p className="mt-1 truncate text-sm text-slate-500">{exp.description}</p>
-                      )}
                     </div>
-                    <span className="ml-4 shrink-0 text-xs text-slate-400">
-                      {new Date(exp.created_at).toLocaleDateString()}
-                    </span>
-                  </Link>
+                  </div>
                 </li>
               ))}
-            </ul>
+              </ul>
+            </div>
           )}
         </div>
       </div>

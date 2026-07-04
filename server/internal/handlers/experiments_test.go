@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"project-prism/server/internal/models"
@@ -45,6 +46,13 @@ func (f *fakeExperimentBranchStore) ListByExperimentIDs(ctx context.Context, ids
 }
 
 func TestExperimentHandlerCreate(t *testing.T) {
+	longExperimentName := strings.Repeat("a", experimentNameMaxLength+1)
+	longExperimentKey := strings.Repeat("k", experimentKeyMaxLength+1)
+	longExperimentDescription := strings.Repeat("d", experimentDescriptionMaxLength+1)
+	longBranchName := strings.Repeat("b", branchNameMaxLength+1)
+	longBranchKey := strings.Repeat("k", branchKeyMaxLength+1)
+	largeBranchMetadata := `{"value":"` + strings.Repeat("a", branchMetadataMaxBytes) + `"}`
+
 	t.Run("success", func(t *testing.T) {
 		var got store.CreateExperimentParams
 		handler := NewExperimentHandler(&fakeExperimentStore{
@@ -56,7 +64,7 @@ func TestExperimentHandlerCreate(t *testing.T) {
 		req := newRequestWithURLParams(http.MethodPost, "/", `{
 			"key":"  exp-key  ",
 			"name":"  Experiment  ",
-			"branches":[{"key":" control ","name":" Control ","weight":0.4}]
+			"branches":[{"key":" control ","name":" Control ","weight":100}]
 		}`, map[string]string{"appID": "app_123"})
 		rec := httptest.NewRecorder()
 
@@ -80,11 +88,20 @@ func TestExperimentHandlerCreate(t *testing.T) {
 		wantStatus int
 	}{
 		{"invalid body", "{", nil, http.StatusBadRequest},
+		{"key too long", `{"key":"` + longExperimentKey + `","name":"Experiment"}`, nil, http.StatusUnprocessableEntity},
+		{"name too long", `{"key":"exp-key","name":"` + longExperimentName + `"}`, nil, http.StatusUnprocessableEntity},
+		{"description too long", `{"key":"exp-key","name":"Experiment","description":"` + longExperimentDescription + `"}`, nil, http.StatusUnprocessableEntity},
 		{"missing key", `{"name":"Experiment"}`, nil, http.StatusUnprocessableEntity},
 		{"missing name", `{"key":"exp-key"}`, nil, http.StatusUnprocessableEntity},
-		{"missing branch key", `{"key":"exp-key","name":"Experiment","branches":[{"name":"Control","weight":0.5}]}`, nil, http.StatusUnprocessableEntity},
-		{"missing branch name", `{"key":"exp-key","name":"Experiment","branches":[{"key":"control","weight":0.5}]}`, nil, http.StatusUnprocessableEntity},
-		{"bad branch weight", `{"key":"exp-key","name":"Experiment","branches":[{"key":"control","name":"Control","weight":2}]}`, nil, http.StatusUnprocessableEntity},
+		{"branch key too long", `{"key":"exp-key","name":"Experiment","branches":[{"key":"` + longBranchKey + `","name":"Control","weight":100}]}`, nil, http.StatusUnprocessableEntity},
+		{"branch name too long", `{"key":"exp-key","name":"Experiment","branches":[{"key":"control","name":"` + longBranchName + `","weight":100}]}`, nil, http.StatusUnprocessableEntity},
+		{"branch metadata must be object", `{"key":"exp-key","name":"Experiment","branches":[{"key":"control","name":"Control","weight":100,"metadata_json":[]}]}`, nil, http.StatusUnprocessableEntity},
+		{"branch metadata too large", `{"key":"exp-key","name":"Experiment","branches":[{"key":"control","name":"Control","weight":100,"metadata_json":` + largeBranchMetadata + `}]}`, nil, http.StatusUnprocessableEntity},
+		{"end date before start date", `{"key":"exp-key","name":"Experiment","start_date":"2026-07-03T12:00:00Z","end_date":"2026-07-03T11:00:00Z"}`, nil, http.StatusUnprocessableEntity},
+		{"missing branch key", `{"key":"exp-key","name":"Experiment","branches":[{"name":"Control","weight":100}]}`, nil, http.StatusUnprocessableEntity},
+		{"missing branch name", `{"key":"exp-key","name":"Experiment","branches":[{"key":"control","weight":100}]}`, nil, http.StatusUnprocessableEntity},
+		{"bad branch weight", `{"key":"exp-key","name":"Experiment","branches":[{"key":"control","name":"Control","weight":200}]}`, nil, http.StatusUnprocessableEntity},
+		{"bad branch total", `{"key":"exp-key","name":"Experiment","branches":[{"key":"control","name":"Control","weight":40},{"key":"variant","name":"Variant","weight":30}]}`, nil, http.StatusUnprocessableEntity},
 		{"app not found", `{"key":"exp-key","name":"Experiment"}`, store.ErrNotFound, http.StatusNotFound},
 		{"app inactive", `{"key":"exp-key","name":"Experiment"}`, store.ErrInactive, http.StatusConflict},
 		{"conflict", `{"key":"exp-key","name":"Experiment"}`, store.ErrConflict, http.StatusConflict},
@@ -134,14 +151,14 @@ func TestExperimentHandlerList(t *testing.T) {
 	t.Run("success with branches", func(t *testing.T) {
 		handler := NewExperimentHandler(&fakeExperimentStore{
 			listFn: func(context.Context, string) ([]*models.Experiment, error) {
-					return []*models.Experiment{&models.Experiment{ID: "exp_123", Name: "Experiment", Branches: []*models.Branch{}}}, nil
+				return []*models.Experiment{&models.Experiment{ID: "exp_123", Name: "Experiment", Branches: []*models.Branch{}}}, nil
 			},
 		}, &fakeExperimentBranchStore{
 			listFn: func(_ context.Context, ids []string) (map[string][]*models.Branch, error) {
 				if len(ids) != 1 || ids[0] != "exp_123" {
 					t.Fatalf("unexpected ids: %#v", ids)
 				}
-					return map[string][]*models.Branch{"exp_123": []*models.Branch{&models.Branch{ID: "branch_123", Key: "control"}}}, nil
+				return map[string][]*models.Branch{"exp_123": []*models.Branch{&models.Branch{ID: "branch_123", Key: "control"}}}, nil
 			},
 		})
 		rec := httptest.NewRecorder()
@@ -169,7 +186,7 @@ func TestExperimentHandlerList(t *testing.T) {
 	t.Run("branch load error", func(t *testing.T) {
 		handler := NewExperimentHandler(&fakeExperimentStore{
 			listFn: func(context.Context, string) ([]*models.Experiment, error) {
-					return []*models.Experiment{&models.Experiment{ID: "exp_123"}}, nil
+				return []*models.Experiment{&models.Experiment{ID: "exp_123"}}, nil
 			},
 		}, &fakeExperimentBranchStore{
 			listFn: func(context.Context, []string) (map[string][]*models.Branch, error) { return nil, errors.New("boom") },
@@ -191,7 +208,7 @@ func TestExperimentHandlerGetByID(t *testing.T) {
 			},
 		}, &fakeExperimentBranchStore{
 			listFn: func(context.Context, []string) (map[string][]*models.Branch, error) {
-					return map[string][]*models.Branch{"exp_123": []*models.Branch{&models.Branch{ID: "branch_123"}}}, nil
+				return map[string][]*models.Branch{"exp_123": []*models.Branch{&models.Branch{ID: "branch_123"}}}, nil
 			},
 		})
 		rec := httptest.NewRecorder()
@@ -232,6 +249,9 @@ func TestExperimentHandlerGetByID(t *testing.T) {
 }
 
 func TestExperimentHandlerUpdate(t *testing.T) {
+	longExperimentName := strings.Repeat("a", experimentNameMaxLength+1)
+	longExperimentDescription := strings.Repeat("d", experimentDescriptionMaxLength+1)
+
 	t.Run("success", func(t *testing.T) {
 		var got store.UpdateExperimentParams
 		handler := NewExperimentHandler(&fakeExperimentStore{
@@ -241,7 +261,7 @@ func TestExperimentHandlerUpdate(t *testing.T) {
 			},
 		}, &fakeExperimentBranchStore{
 			listFn: func(context.Context, []string) (map[string][]*models.Branch, error) {
-					return map[string][]*models.Branch{"exp_123": []*models.Branch{&models.Branch{ID: "branch_123"}}}, nil
+				return map[string][]*models.Branch{"exp_123": []*models.Branch{&models.Branch{ID: "branch_123"}}}, nil
 			},
 		})
 		rec := httptest.NewRecorder()
@@ -264,8 +284,11 @@ func TestExperimentHandlerUpdate(t *testing.T) {
 		wantStatus int
 	}{
 		{"invalid body", "{", nil, http.StatusBadRequest},
+		{"name too long", `{"name":"` + longExperimentName + `"}`, nil, http.StatusUnprocessableEntity},
+		{"description too long", `{"name":"Exp","description":"` + longExperimentDescription + `"}`, nil, http.StatusUnprocessableEntity},
 		{"missing name", `{"name":" "}`, nil, http.StatusUnprocessableEntity},
 		{"invalid status", `{"name":"Exp","status":"archived"}`, nil, http.StatusUnprocessableEntity},
+		{"end date before start date", `{"name":"Exp","status":"active","start_date":"2026-07-03T12:00:00Z","end_date":"2026-07-03T11:00:00Z"}`, nil, http.StatusUnprocessableEntity},
 		{"not found", `{"name":"Exp","status":"active"}`, store.ErrNotFound, http.StatusNotFound},
 		{"unexpected", `{"name":"Exp","status":"active"}`, errors.New("boom"), http.StatusInternalServerError},
 	}

@@ -43,12 +43,12 @@ type createBranchInExperimentRequest struct {
 }
 
 type createExperimentRequest struct {
-	Key         string                             `json:"key"`
-	Name        string                             `json:"name"`
-	Description *string                            `json:"description"`
-	StartDate   *time.Time                         `json:"start_date"`
-	EndDate     *time.Time                         `json:"end_date"`
-	Branches    []createBranchInExperimentRequest  `json:"branches"`
+	Key         string                            `json:"key"`
+	Name        string                            `json:"name"`
+	Description *string                           `json:"description"`
+	StartDate   *time.Time                        `json:"start_date"`
+	EndDate     *time.Time                        `json:"end_date"`
+	Branches    []createBranchInExperimentRequest `json:"branches"`
 }
 
 type updateExperimentRequest struct {
@@ -71,12 +71,20 @@ func (h *ExperimentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	req.Key = strings.TrimSpace(req.Key)
 	req.Name = strings.TrimSpace(req.Name)
 
-	if req.Key == "" {
-		respond.Error(w, http.StatusUnprocessableEntity, "key is required")
+	if err := validateExperimentKey(req.Key); err != nil {
+		respond.Error(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	if req.Name == "" {
-		respond.Error(w, http.StatusUnprocessableEntity, "name is required")
+	if err := validateExperimentName(req.Name); err != nil {
+		respond.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if err := validateExperimentDescription(req.Description); err != nil {
+		respond.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if err := validateExperimentDates(req.StartDate, req.EndDate); err != nil {
+		respond.Error(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
@@ -88,29 +96,39 @@ func (h *ExperimentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		StartDate:     req.StartDate,
 		EndDate:       req.EndDate,
 	}
+	branchWeights := make([]*models.Branch, 0, len(req.Branches))
 
 	for i, b := range req.Branches {
 		b.Key = strings.TrimSpace(b.Key)
 		b.Name = strings.TrimSpace(b.Name)
-		if b.Key == "" {
-			respond.Error(w, http.StatusUnprocessableEntity, "branch key is required")
+		if err := validateBranchKey(b.Key); err != nil {
+			respond.Error(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
-		if b.Name == "" {
-			respond.Error(w, http.StatusUnprocessableEntity, "branch name is required")
+		if err := validateBranchName(b.Name); err != nil {
+			respond.Error(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
-		if b.Weight < 0 || b.Weight > 1 {
-			respond.Error(w, http.StatusUnprocessableEntity, "branch weight must be between 0 and 1")
+		if err := validateBranchMetadataJSON(b.MetadataJSON); err != nil {
+			respond.Error(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		if err := validateBranchWeightValue(b.Weight); err != nil {
+			respond.Error(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
 		req.Branches[i] = b
+		branchWeights = append(branchWeights, &models.Branch{Weight: b.Weight})
 		params.Branches = append(params.Branches, store.CreateBranchParams{
 			Key:          b.Key,
 			Name:         b.Name,
 			Weight:       b.Weight,
 			MetadataJSON: b.MetadataJSON,
 		})
+	}
+	if err := validateBranchWeights(branchWeights); err != nil {
+		respond.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
 	}
 
 	exp, err := h.store.Create(r.Context(), params)
@@ -205,8 +223,12 @@ func (h *ExperimentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" {
-		respond.Error(w, http.StatusUnprocessableEntity, "name is required")
+	if err := validateExperimentName(req.Name); err != nil {
+		respond.Error(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if err := validateExperimentDescription(req.Description); err != nil {
+		respond.Error(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	if req.Status == "" {
@@ -214,6 +236,10 @@ func (h *ExperimentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if !req.Status.Valid() {
 		respond.Error(w, http.StatusUnprocessableEntity, "status must be one of: draft, active, paused, completed")
+		return
+	}
+	if err := validateExperimentDates(req.StartDate, req.EndDate); err != nil {
+		respond.Error(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 

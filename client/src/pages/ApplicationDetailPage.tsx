@@ -4,6 +4,7 @@ import { applicationsApi, type Application } from "@/api/applications"
 import { ApiError } from "@/api/client"
 import { ApplicationStatusToggle } from "@/components/ApplicationStatusToggle"
 import { Button } from "@/components/ui/button"
+import { APPLICATION_NAME_MAX_LENGTH, validateApplicationName } from "@/lib/applicationName"
 
 export default function ApplicationDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -50,6 +51,11 @@ export default function ApplicationDetailPage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     if (!app) return
+    const nameError = validateApplicationName(editName)
+    if (nameError) {
+      setEditError(nameError)
+      return
+    }
 
     setEditLoading(true)
     setEditError(null)
@@ -154,13 +160,17 @@ export default function ApplicationDetailPage() {
                           type="text"
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
+                          maxLength={APPLICATION_NAME_MAX_LENGTH}
                           className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                           disabled={editLoading}
                         />
                       </div>
 
                       <div className="flex flex-wrap gap-3">
-                        <Button type="submit" disabled={editLoading || !editName.trim()}>
+                        <Button
+                          type="submit"
+                          disabled={editLoading || Boolean(validateApplicationName(editName))}
+                        >
                           {editLoading ? "Saving…" : "Save"}
                         </Button>
                         <Button
@@ -178,14 +188,15 @@ export default function ApplicationDetailPage() {
                     </form>
                   ) : (
                     <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+                      <div className="min-w-0 flex-1">
+                        <h1 className="wrap-break-word text-2xl font-semibold tracking-tight text-slate-900">
                           {app.name}
                         </h1>
                       </div>
                       <Button
                         variant="outline"
                         onClick={() => setEditing(true)}
+                        className="shrink-0"
                         disabled={statusLoading}
                       >
                         Rename

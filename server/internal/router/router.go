@@ -65,6 +65,7 @@ func New(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 
 		r.Route("/applications/{appID}/experiments/{experimentID}/branches", func(r chi.Router) {
 			r.Post("/", branchHandler.Create)
+			r.Put("/", branchHandler.SaveAll)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Put("/", branchHandler.Update)
 				r.Delete("/", branchHandler.Delete)

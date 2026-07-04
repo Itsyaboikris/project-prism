@@ -120,6 +120,101 @@ func TestBranchStoreUpdateDeleteAndHelpers(t *testing.T) {
 	}
 }
 
+func TestBranchStoreSaveAll(t *testing.T) {
+	mock := newMockPool(t)
+	store := NewBranchStore(mock)
+
+	mock.ExpectBegin()
+
+	existingRows := pgxmock.NewRows([]string{"id", "experiment_id", "key", "name", "weight", "metadata_json"}).
+		AddRow("branch_123", "exp_123", "control", "Control", 40, nil).
+		AddRow("branch_456", "exp_123", "variant-old", "Variant Old", 60, nil)
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT id, experiment_id, key, name, weight, metadata_json
+		FROM branches
+		WHERE experiment_id = $1 AND deleted_at IS NULL
+		ORDER BY name`)).
+		WithArgs("exp_123").
+		WillReturnRows(existingRows)
+
+	mock.ExpectExec(regexp.QuoteMeta(`
+		UPDATE branches
+		SET deleted_at = NOW()
+		WHERE id = $1 AND experiment_id = $2 AND deleted_at IS NULL`)).
+		WithArgs("branch_456", "exp_123").
+		WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+
+	updateRows := pgxmock.NewRows([]string{"id", "experiment_id", "key", "name", "weight", "metadata_json"}).
+		AddRow("branch_123", "exp_123", "control", "Control Updated", 70, []byte(`{"ok":true}`))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		UPDATE branches
+		SET key = $1, name = $2, weight = $3, metadata_json = $4
+		WHERE id = $5 AND experiment_id = $6 AND deleted_at IS NULL
+		RETURNING id, experiment_id, key, name, weight, metadata_json`)).
+		WithArgs("control", "Control Updated", 70.0, pgxmock.AnyArg(), "branch_123", "exp_123").
+		WillReturnRows(updateRows)
+
+	createRows := pgxmock.NewRows([]string{"id", "experiment_id", "key", "name", "weight", "metadata_json"}).
+		AddRow("branch_789", "exp_123", "variant-new", "Variant New", 30, nil)
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		INSERT INTO branches (experiment_id, key, name, weight, metadata_json)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, experiment_id, key, name, weight, metadata_json`)).
+		WithArgs("exp_123", "variant-new", "Variant New", 30.0, nil).
+		WillReturnRows(createRows)
+
+	finalRows := pgxmock.NewRows([]string{"id", "experiment_id", "key", "name", "weight", "metadata_json"}).
+		AddRow("branch_123", "exp_123", "control", "Control Updated", 70, []byte(`{"ok":true}`)).
+		AddRow("branch_789", "exp_123", "variant-new", "Variant New", 30, nil)
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT id, experiment_id, key, name, weight, metadata_json
+		FROM branches
+		WHERE experiment_id = $1 AND deleted_at IS NULL
+		ORDER BY name`)).
+		WithArgs("exp_123").
+		WillReturnRows(finalRows)
+
+	mock.ExpectCommit()
+
+	metadata := json.RawMessage(`{"ok":true}`)
+	branches, err := store.SaveAll(context.Background(), "exp_123", []SaveBranchParams{
+		{ID: "branch_123", Key: "control", Name: "Control Updated", Weight: 70, MetadataJSON: metadata},
+		{Key: "variant-new", Name: "Variant New", Weight: 30},
+	})
+	if err != nil {
+		t.Fatalf("SaveAll returned error: %v", err)
+	}
+	if len(branches) != 2 {
+		t.Fatalf("expected 2 branches, got %d", len(branches))
+	}
+	if branches[0].Name != "Control Updated" || branches[1].Key != "variant-new" {
+		t.Fatalf("unexpected branches: %#v", branches)
+	}
+}
+
+func TestBranchStoreSaveAllMissingBranch(t *testing.T) {
+	mock := newMockPool(t)
+	store := NewBranchStore(mock)
+
+	mock.ExpectBegin()
+	existingRows := pgxmock.NewRows([]string{"id", "experiment_id", "key", "name", "weight", "metadata_json"}).
+		AddRow("branch_123", "exp_123", "control", "Control", 100, nil)
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT id, experiment_id, key, name, weight, metadata_json
+		FROM branches
+		WHERE experiment_id = $1 AND deleted_at IS NULL
+		ORDER BY name`)).
+		WithArgs("exp_123").
+		WillReturnRows(existingRows)
+
+	_, err := store.SaveAll(context.Background(), "exp_123", []SaveBranchParams{
+		{ID: "missing", Key: "control", Name: "Control", Weight: 100},
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestBranchStoreNotFoundAndClassify(t *testing.T) {
 	mock := newMockPool(t)
 	store := NewBranchStore(mock)

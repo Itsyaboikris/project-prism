@@ -20,6 +20,15 @@ type CreateBranchParams struct {
 }
 
 type UpdateBranchParams struct {
+	Key          string
+	Name         string
+	Weight       float64
+	MetadataJSON json.RawMessage
+}
+
+type SaveBranchParams struct {
+	ID           string
+	Key          string
 	Name         string
 	Weight       float64
 	MetadataJSON json.RawMessage
@@ -146,6 +155,79 @@ func (s *BranchStore) Delete(ctx context.Context, experimentID, id string) error
 	return nil
 }
 
+func (s *BranchStore) SaveAll(ctx context.Context, experimentID string, branches []SaveBranchParams) ([]*models.Branch, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin branch save transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	existingBranches, err := listBranchesByExperimentID(ctx, tx, experimentID)
+	if err != nil {
+		return nil, err
+	}
+
+	existingByID := make(map[string]*models.Branch, len(existingBranches))
+	for _, branch := range existingBranches {
+		existingByID[branch.ID] = branch
+	}
+
+	keptIDs := make(map[string]struct{}, len(branches))
+	for _, branch := range branches {
+		if branch.ID == "" {
+			continue
+		}
+		if _, ok := existingByID[branch.ID]; !ok {
+			return nil, ErrNotFound
+		}
+		keptIDs[branch.ID] = struct{}{}
+	}
+
+	for _, branch := range existingBranches {
+		if _, ok := keptIDs[branch.ID]; ok {
+			continue
+		}
+		if err := deleteBranch(ctx, tx, experimentID, branch.ID); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, branch := range branches {
+		if branch.ID == "" {
+			if _, err := createBranch(ctx, tx, experimentID, CreateBranchParams{
+				ExperimentID: experimentID,
+				Key:          branch.Key,
+				Name:         branch.Name,
+				Weight:       branch.Weight,
+				MetadataJSON: branch.MetadataJSON,
+			}); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		if _, err := updateBranch(ctx, tx, experimentID, branch.ID, UpdateBranchParams{
+			Key:          branch.Key,
+			Name:         branch.Name,
+			Weight:       branch.Weight,
+			MetadataJSON: branch.MetadataJSON,
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	updatedBranches, err := listBranchesByExperimentID(ctx, tx, experimentID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit branch save transaction: %w", err)
+	}
+
+	return updatedBranches, nil
+}
+
 func (s *BranchStore) listByIDs(ctx context.Context, experimentIDs []string) ([]*models.Branch, error) {
 	byExp, err := s.ListByExperimentIDs(ctx, experimentIDs)
 	if err != nil {
@@ -175,6 +257,102 @@ func classifyBranchErr(op string, err error) error {
 		}
 	}
 	return fmt.Errorf("%s: %w", op, err)
+}
+
+type branchQueryer interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+func listBranchesByExperimentID(ctx context.Context, q branchQueryer, experimentID string) ([]*models.Branch, error) {
+	const query = `
+		SELECT id, experiment_id, key, name, weight, metadata_json
+		FROM branches
+		WHERE experiment_id = $1 AND deleted_at IS NULL
+		ORDER BY name`
+
+	rows, err := q.Query(ctx, query, experimentID)
+	if err != nil {
+		return nil, fmt.Errorf("list branches: %w", err)
+	}
+	defer rows.Close()
+
+	var branches []*models.Branch
+	for rows.Next() {
+		branch := &models.Branch{}
+		if err := rows.Scan(
+			&branch.ID,
+			&branch.ExperimentID,
+			&branch.Key,
+			&branch.Name,
+			&branch.Weight,
+			&branch.MetadataJSON,
+		); err != nil {
+			return nil, fmt.Errorf("scan branch: %w", err)
+		}
+		branches = append(branches, branch)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list branches rows: %w", err)
+	}
+
+	return branches, nil
+}
+
+func createBranch(ctx context.Context, q branchQueryer, experimentID string, p CreateBranchParams) (*models.Branch, error) {
+	const query = `
+		INSERT INTO branches (experiment_id, key, name, weight, metadata_json)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, experiment_id, key, name, weight, metadata_json`
+
+	branch := &models.Branch{}
+	err := q.QueryRow(ctx, query, experimentID, p.Key, p.Name, p.Weight, nilIfEmpty(p.MetadataJSON)).Scan(
+		&branch.ID, &branch.ExperimentID, &branch.Key, &branch.Name, &branch.Weight, &branch.MetadataJSON,
+	)
+	if err != nil {
+		return nil, classifyBranchErr("create branch", err)
+	}
+
+	return branch, nil
+}
+
+func updateBranch(ctx context.Context, q branchQueryer, experimentID, id string, p UpdateBranchParams) (*models.Branch, error) {
+	const query = `
+		UPDATE branches
+		SET key = $1, name = $2, weight = $3, metadata_json = $4
+		WHERE id = $5 AND experiment_id = $6 AND deleted_at IS NULL
+		RETURNING id, experiment_id, key, name, weight, metadata_json`
+
+	branch := &models.Branch{}
+	err := q.QueryRow(ctx, query, p.Key, p.Name, p.Weight, nilIfEmpty(p.MetadataJSON), id, experimentID).Scan(
+		&branch.ID, &branch.ExperimentID, &branch.Key, &branch.Name, &branch.Weight, &branch.MetadataJSON,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, classifyBranchErr("update branch", err)
+	}
+
+	return branch, nil
+}
+
+func deleteBranch(ctx context.Context, q branchQueryer, experimentID, id string) error {
+	const query = `
+		UPDATE branches
+		SET deleted_at = NOW()
+		WHERE id = $1 AND experiment_id = $2 AND deleted_at IS NULL`
+
+	tag, err := q.Exec(ctx, query, id, experimentID)
+	if err != nil {
+		return fmt.Errorf("delete branch: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+
+	return nil
 }
 
 // nilIfEmpty returns nil for an empty json.RawMessage so pgx inserts NULL.

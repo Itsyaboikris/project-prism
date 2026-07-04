@@ -11,8 +11,8 @@ import (
 
 func TestSelectBranchIsDeterministic(t *testing.T) {
 	branches := []*models.Branch{
-		{ID: "branch_control", Key: "control", Weight: 0.2},
-		{ID: "branch_variant", Key: "variant-a", Weight: 0.8},
+		{ID: "branch_control", Key: "control", Weight: 20},
+		{ID: "branch_variant", Key: "variant-a", Weight: 80},
 	}
 
 	first, err := selectBranch("app_123", "checkout-button-color", "user_123", branches)
@@ -32,8 +32,8 @@ func TestSelectBranchIsDeterministic(t *testing.T) {
 
 func TestSelectBranchHonorsWeights(t *testing.T) {
 	branches := []*models.Branch{
-		{ID: "branch_control", Key: "control", Weight: 0.2},
-		{ID: "branch_variant", Key: "variant-a", Weight: 0.8},
+		{ID: "branch_control", Key: "control", Weight: 20},
+		{ID: "branch_variant", Key: "variant-a", Weight: 80},
 	}
 
 	controlUser := findUserIDForBucketRange(t, "app_123", "checkout-button-color", 0, 1999)

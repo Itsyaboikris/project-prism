@@ -47,8 +47,8 @@ func (h *ApplicationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" {
-		respond.Error(w, http.StatusUnprocessableEntity, "name is required")
+	if err := validateApplicationName(req.Name); err != nil {
+		respond.Error(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
@@ -108,8 +108,8 @@ func (h *ApplicationHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" {
-		respond.Error(w, http.StatusUnprocessableEntity, "name is required")
+	if err := validateApplicationName(req.Name); err != nil {
+		respond.Error(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	if req.Status != nil && !req.Status.Valid() {
