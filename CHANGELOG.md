@@ -2,6 +2,16 @@
 
 All notable changes to Prism should be documented in this file.
 
+## [1.0.3] - 2026-07-03
+
+### Changed
+- New-user assignment selection now uses count-aware balancing to keep live branch splits closer to configured weights
+- Existing user assignments remain sticky while deterministic hashing is now used only as a tie-breaker when branches are equally under target
+
+### Fixed
+- Reduced short-run drift for weighted experiments, especially on lower-volume traffic, by selecting the most under-target branch inside a transaction
+- Added store coverage for balanced `50/50` and `80/20` splits, sticky assignments, deterministic tie-breaking, and the transactional assignment path
+
 ## [1.0.2] - 2026-07-03
 
 ### Added

@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,6 +26,11 @@ type AssignmentStore struct {
 	pool DB
 }
 
+type assignmentQueryer interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 func NewAssignmentStore(pool DB) *AssignmentStore {
 	return &AssignmentStore{pool: pool}
 }
@@ -37,12 +43,12 @@ type assignmentExperimentView struct {
 }
 
 func (s *AssignmentStore) Assign(ctx context.Context, p AssignParams) (*models.Branch, error) {
-	experiment, err := s.getExperimentForAssignment(ctx, p.ApplicationID, p.ExperimentKey)
+	experiment, err := getExperimentForAssignment(ctx, s.pool, p.ApplicationID, p.ExperimentKey, false)
 	if err != nil {
 		return nil, err
 	}
 
-	branch, err := s.getExistingAssignedBranch(ctx, experiment.ID, p.UserID)
+	branch, err := getExistingAssignedBranch(ctx, s.pool, experiment.ID, p.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +56,26 @@ func (s *AssignmentStore) Assign(ctx context.Context, p AssignParams) (*models.B
 		return branch, nil
 	}
 
-	branches, err := s.listActiveBranches(ctx, experiment.ID)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin assignment transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	experiment, err = getExperimentForAssignment(ctx, tx, p.ApplicationID, p.ExperimentKey, true)
+	if err != nil {
+		return nil, err
+	}
+
+	branch, err = getExistingAssignedBranch(ctx, tx, experiment.ID, p.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if branch != nil {
+		return branch, nil
+	}
+
+	branches, err := listActiveBranches(ctx, tx, experiment.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -58,17 +83,31 @@ func (s *AssignmentStore) Assign(ctx context.Context, p AssignParams) (*models.B
 		return nil, ErrMisconfigured
 	}
 
-	branch, err = selectBranch(p.ApplicationID, p.ExperimentKey, p.UserID, branches)
+	assignmentCounts, err := getAssignmentCountsByBranch(ctx, tx, experiment.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	branchID, err := s.upsertAssignment(ctx, p.ApplicationID, experiment.ID, branch.ID, p.UserID)
+	branch, err = selectBalancedBranch(p.ApplicationID, p.ExperimentKey, p.UserID, branches, assignmentCounts)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.getBranchByID(ctx, experiment.ID, branchID)
+	branchID, err := upsertAssignment(ctx, tx, p.ApplicationID, experiment.ID, branch.ID, p.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	branch, err = getBranchByID(ctx, tx, experiment.ID, branchID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit assignment transaction: %w", err)
+	}
+
+	return branch, nil
 }
 
 func (s *AssignmentStore) ListByExperiment(ctx context.Context, applicationID, experimentID string) (*models.ExperimentAssignmentsView, error) {
@@ -197,14 +236,17 @@ type assignmentExperiment struct {
 	EndDate   *time.Time
 }
 
-func (s *AssignmentStore) getExperimentForAssignment(ctx context.Context, applicationID, experimentKey string) (*assignmentExperiment, error) {
-	const q = `
+func getExperimentForAssignment(ctx context.Context, q assignmentQueryer, applicationID, experimentKey string, lock bool) (*assignmentExperiment, error) {
+	query := `
 		SELECT id, status, start_date, end_date
 		FROM experiments
 		WHERE application_id = $1 AND key = $2 AND deleted_at IS NULL`
+	if lock {
+		query += ` FOR UPDATE`
+	}
 
 	experiment := &assignmentExperiment{}
-	err := s.pool.QueryRow(ctx, q, applicationID, experimentKey).Scan(
+	err := q.QueryRow(ctx, query, applicationID, experimentKey).Scan(
 		&experiment.ID,
 		&experiment.Status,
 		&experiment.StartDate,
@@ -256,8 +298,8 @@ func (s *AssignmentStore) getExperimentView(ctx context.Context, applicationID, 
 	return experiment, nil
 }
 
-func (s *AssignmentStore) getExistingAssignedBranch(ctx context.Context, experimentID, userID string) (*models.Branch, error) {
-	const q = `
+func getExistingAssignedBranch(ctx context.Context, queryer assignmentQueryer, experimentID, userID string) (*models.Branch, error) {
+	const query = `
 		SELECT b.id, b.experiment_id, b.key, b.name, b.weight, b.metadata_json
 		FROM assignments a
 		JOIN branches b ON b.id = a.branch_id
@@ -266,7 +308,7 @@ func (s *AssignmentStore) getExistingAssignedBranch(ctx context.Context, experim
 		  AND b.deleted_at IS NULL`
 
 	branch := &models.Branch{}
-	err := s.pool.QueryRow(ctx, q, experimentID, userID).Scan(
+	err := queryer.QueryRow(ctx, query, experimentID, userID).Scan(
 		&branch.ID,
 		&branch.ExperimentID,
 		&branch.Key,
@@ -284,14 +326,14 @@ func (s *AssignmentStore) getExistingAssignedBranch(ctx context.Context, experim
 	return branch, nil
 }
 
-func (s *AssignmentStore) listActiveBranches(ctx context.Context, experimentID string) ([]*models.Branch, error) {
-	const q = `
+func listActiveBranches(ctx context.Context, queryer assignmentQueryer, experimentID string) ([]*models.Branch, error) {
+	const query = `
 		SELECT id, experiment_id, key, name, weight, metadata_json
 		FROM branches
 		WHERE experiment_id = $1 AND deleted_at IS NULL
 		ORDER BY key`
 
-	rows, err := s.pool.Query(ctx, q, experimentID)
+	rows, err := queryer.Query(ctx, query, experimentID)
 	if err != nil {
 		return nil, fmt.Errorf("list branches for assignment: %w", err)
 	}
@@ -319,8 +361,37 @@ func (s *AssignmentStore) listActiveBranches(ctx context.Context, experimentID s
 	return branches, nil
 }
 
-func (s *AssignmentStore) upsertAssignment(ctx context.Context, applicationID, experimentID, branchID, userID string) (string, error) {
-	const q = `
+func getAssignmentCountsByBranch(ctx context.Context, queryer assignmentQueryer, experimentID string) (map[string]int, error) {
+	const query = `
+		SELECT branch_id, COUNT(*)::bigint AS assignment_count
+		FROM assignments
+		WHERE experiment_id = $1
+		GROUP BY branch_id`
+
+	rows, err := queryer.Query(ctx, query, experimentID)
+	if err != nil {
+		return nil, fmt.Errorf("get assignment counts by branch: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var branchID string
+		var assignmentCount int64
+		if err := rows.Scan(&branchID, &assignmentCount); err != nil {
+			return nil, fmt.Errorf("scan assignment count: %w", err)
+		}
+		counts[branchID] = int(assignmentCount)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("assignment counts rows: %w", err)
+	}
+
+	return counts, nil
+}
+
+func upsertAssignment(ctx context.Context, queryer assignmentQueryer, applicationID, experimentID, branchID, userID string) (string, error) {
+	const query = `
 		INSERT INTO assignments (application_id, experiment_id, branch_id, user_id)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (experiment_id, user_id)
@@ -331,21 +402,21 @@ func (s *AssignmentStore) upsertAssignment(ctx context.Context, applicationID, e
 		RETURNING branch_id`
 
 	var assignedBranchID string
-	if err := s.pool.QueryRow(ctx, q, applicationID, experimentID, branchID, userID).Scan(&assignedBranchID); err != nil {
+	if err := queryer.QueryRow(ctx, query, applicationID, experimentID, branchID, userID).Scan(&assignedBranchID); err != nil {
 		return "", fmt.Errorf("upsert assignment: %w", err)
 	}
 
 	return assignedBranchID, nil
 }
 
-func (s *AssignmentStore) getBranchByID(ctx context.Context, experimentID, branchID string) (*models.Branch, error) {
-	const q = `
+func getBranchByID(ctx context.Context, queryer assignmentQueryer, experimentID, branchID string) (*models.Branch, error) {
+	const query = `
 		SELECT id, experiment_id, key, name, weight, metadata_json
 		FROM branches
 		WHERE id = $1 AND experiment_id = $2 AND deleted_at IS NULL`
 
 	branch := &models.Branch{}
-	err := s.pool.QueryRow(ctx, q, branchID, experimentID).Scan(
+	err := queryer.QueryRow(ctx, query, branchID, experimentID).Scan(
 		&branch.ID,
 		&branch.ExperimentID,
 		&branch.Key,
@@ -363,7 +434,11 @@ func (s *AssignmentStore) getBranchByID(ctx context.Context, experimentID, branc
 	return branch, nil
 }
 
-func selectBranch(applicationID, experimentKey, userID string, branches []*models.Branch) (*models.Branch, error) {
+func selectBalancedBranch(
+	applicationID, experimentKey, userID string,
+	branches []*models.Branch,
+	assignmentCounts map[string]int,
+) (*models.Branch, error) {
 	totalWeight := 0.0
 	for _, branch := range branches {
 		totalWeight += branch.Weight
@@ -372,17 +447,38 @@ func selectBranch(applicationID, experimentKey, userID string, branches []*model
 		return nil, ErrMisconfigured
 	}
 
-	sum := sha256.Sum256([]byte(applicationID + ":" + experimentKey + ":" + userID))
-	bucket := binary.BigEndian.Uint64(sum[:8]) % 10000
-	target := float64(bucket) / 10000.0
+	totalAssignments := 0
+	for _, branch := range branches {
+		totalAssignments += assignmentCounts[branch.ID]
+	}
 
-	cumulative := 0.0
-	for i, branch := range branches {
-		cumulative += branch.Weight / totalWeight
-		if target < cumulative || i == len(branches)-1 {
-			return branch, nil
+	var selected *models.Branch
+	bestScore := 0.0
+	bestTieBreaker := uint64(0)
+	const scoreTolerance = 0.0000001
+
+	for _, branch := range branches {
+		currentCount := assignmentCounts[branch.ID]
+		score := (branch.Weight * float64(totalAssignments+1)) - (float64(currentCount) * totalWeight)
+		tieBreaker := assignmentTieBucket(applicationID, experimentKey, userID, branch.ID)
+
+		if selected == nil ||
+			score > bestScore+scoreTolerance ||
+			(math.Abs(score-bestScore) <= scoreTolerance && tieBreaker < bestTieBreaker) {
+			selected = branch
+			bestScore = score
+			bestTieBreaker = tieBreaker
 		}
 	}
 
-	return nil, ErrMisconfigured
+	if selected == nil {
+		return nil, ErrMisconfigured
+	}
+
+	return selected, nil
+}
+
+func assignmentTieBucket(applicationID, experimentKey, userID, branchID string) uint64 {
+	sum := sha256.Sum256([]byte(applicationID + ":" + experimentKey + ":" + userID + ":" + branchID))
+	return binary.BigEndian.Uint64(sum[:8])
 }
