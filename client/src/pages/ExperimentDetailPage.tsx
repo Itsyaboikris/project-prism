@@ -557,6 +557,21 @@ export default function ExperimentDetailPage() {
                       </dd>
                     </div>
                   </dl>
+
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <Link
+                      to={`/applications/${appId}/experiments/${id}/assignments`}
+                      className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50"
+                    >
+                      View assignments
+                    </Link>
+                    <Link
+                      to={`/applications/${appId}/experiments/${id}/dashboard`}
+                      className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50"
+                    >
+                      Open dashboard
+                    </Link>
+                  </div>
                 </>
               )}
             </div>

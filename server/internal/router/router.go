@@ -58,6 +58,8 @@ func New(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 			r.Post("/", expHandler.Create)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", expHandler.GetByID)
+				r.Get("/assignments", assignHandler.ListByExperiment)
+				r.Get("/dashboard", assignHandler.GetExperimentDashboard)
 				r.Put("/", expHandler.Update)
 				r.Delete("/", expHandler.Delete)
 			})

@@ -29,6 +29,13 @@ func NewAssignmentStore(pool DB) *AssignmentStore {
 	return &AssignmentStore{pool: pool}
 }
 
+type assignmentExperimentView struct {
+	ID     string
+	Key    string
+	Name   string
+	Status models.ExperimentStatus
+}
+
 func (s *AssignmentStore) Assign(ctx context.Context, p AssignParams) (*models.Branch, error) {
 	experiment, err := s.getExperimentForAssignment(ctx, p.ApplicationID, p.ExperimentKey)
 	if err != nil {
@@ -62,6 +69,125 @@ func (s *AssignmentStore) Assign(ctx context.Context, p AssignParams) (*models.B
 	}
 
 	return s.getBranchByID(ctx, experiment.ID, branchID)
+}
+
+func (s *AssignmentStore) ListByExperiment(ctx context.Context, applicationID, experimentID string) (*models.ExperimentAssignmentsView, error) {
+	experiment, err := s.getExperimentView(ctx, applicationID, experimentID)
+	if err != nil {
+		return nil, err
+	}
+
+	const q = `
+		SELECT a.id, a.application_id, a.experiment_id, a.branch_id, a.user_id, a.assigned_at,
+		       a.context_json, a.created_at, a.updated_at, b.key, b.name, b.weight
+		FROM assignments a
+		JOIN branches b ON b.id = a.branch_id
+		WHERE a.application_id = $1
+		  AND a.experiment_id = $2
+		ORDER BY a.assigned_at DESC, a.id DESC`
+
+	rows, err := s.pool.Query(ctx, q, applicationID, experimentID)
+	if err != nil {
+		return nil, fmt.Errorf("list assignments: %w", err)
+	}
+	defer rows.Close()
+
+	view := &models.ExperimentAssignmentsView{
+		ExperimentID:     experiment.ID,
+		ExperimentKey:    experiment.Key,
+		ExperimentName:   experiment.Name,
+		ExperimentStatus: experiment.Status,
+		Assignments:      []*models.ExperimentAssignmentListItem{},
+	}
+
+	for rows.Next() {
+		assignment := &models.ExperimentAssignmentListItem{}
+		if err := rows.Scan(
+			&assignment.ID,
+			&assignment.ApplicationID,
+			&assignment.ExperimentID,
+			&assignment.BranchID,
+			&assignment.UserID,
+			&assignment.AssignedAt,
+			&assignment.ContextJSON,
+			&assignment.CreatedAt,
+			&assignment.UpdatedAt,
+			&assignment.BranchKey,
+			&assignment.BranchName,
+			&assignment.BranchWeight,
+		); err != nil {
+			return nil, fmt.Errorf("scan assignment: %w", err)
+		}
+		view.Assignments = append(view.Assignments, assignment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list assignments rows: %w", err)
+	}
+
+	return view, nil
+}
+
+func (s *AssignmentStore) GetExperimentDashboard(ctx context.Context, applicationID, experimentID string) (*models.ExperimentDashboard, error) {
+	experiment, err := s.getExperimentView(ctx, applicationID, experimentID)
+	if err != nil {
+		return nil, err
+	}
+
+	const q = `
+		SELECT b.id, b.key, b.name, b.weight, COUNT(a.id)::bigint AS assignment_count
+		FROM branches b
+		LEFT JOIN assignments a
+		  ON a.branch_id = b.id
+		 AND a.experiment_id = $1
+		WHERE b.experiment_id = $1
+		  AND b.deleted_at IS NULL
+		GROUP BY b.id, b.key, b.name, b.weight
+		ORDER BY b.key`
+
+	rows, err := s.pool.Query(ctx, q, experimentID)
+	if err != nil {
+		return nil, fmt.Errorf("get experiment dashboard: %w", err)
+	}
+	defer rows.Close()
+
+	dashboard := &models.ExperimentDashboard{
+		ExperimentID:     experiment.ID,
+		ExperimentKey:    experiment.Key,
+		ExperimentName:   experiment.Name,
+		ExperimentStatus: experiment.Status,
+		Branches:         []*models.ExperimentDashboardBranch{},
+	}
+
+	totalAssignments := 0
+	for rows.Next() {
+		branch := &models.ExperimentDashboardBranch{}
+		var assignmentCount int64
+		if err := rows.Scan(
+			&branch.BranchID,
+			&branch.BranchKey,
+			&branch.BranchName,
+			&branch.ConfiguredWeight,
+			&assignmentCount,
+		); err != nil {
+			return nil, fmt.Errorf("scan experiment dashboard branch: %w", err)
+		}
+		branch.AssignmentCount = int(assignmentCount)
+		totalAssignments += branch.AssignmentCount
+		dashboard.Branches = append(dashboard.Branches, branch)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("experiment dashboard rows: %w", err)
+	}
+
+	dashboard.TotalAssignments = totalAssignments
+	dashboard.BranchCount = len(dashboard.Branches)
+	if dashboard.TotalAssignments > 0 {
+		for _, branch := range dashboard.Branches {
+			branch.AssignmentShare = (float64(branch.AssignmentCount) / float64(dashboard.TotalAssignments)) * 100
+		}
+	}
+
+	return dashboard, nil
 }
 
 type assignmentExperiment struct {
@@ -100,6 +226,31 @@ func (s *AssignmentStore) getExperimentForAssignment(ctx context.Context, applic
 	}
 	if experiment.EndDate != nil && experiment.EndDate.Before(now) {
 		return nil, ErrNotEligible
+	}
+
+	return experiment, nil
+}
+
+func (s *AssignmentStore) getExperimentView(ctx context.Context, applicationID, experimentID string) (*assignmentExperimentView, error) {
+	const q = `
+		SELECT id, key, name, status
+		FROM experiments
+		WHERE application_id = $1
+		  AND id = $2
+		  AND deleted_at IS NULL`
+
+	experiment := &assignmentExperimentView{}
+	err := s.pool.QueryRow(ctx, q, applicationID, experimentID).Scan(
+		&experiment.ID,
+		&experiment.Key,
+		&experiment.Name,
+		&experiment.Status,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get experiment view: %w", err)
 	}
 
 	return experiment, nil

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"project-prism/server/internal/apiauth"
 	"project-prism/server/internal/models"
 	"project-prism/server/internal/respond"
@@ -15,6 +16,8 @@ import (
 
 type assignmentStore interface {
 	Assign(ctx context.Context, p store.AssignParams) (*models.Branch, error)
+	ListByExperiment(ctx context.Context, applicationID, experimentID string) (*models.ExperimentAssignmentsView, error)
+	GetExperimentDashboard(ctx context.Context, applicationID, experimentID string) (*models.ExperimentDashboard, error)
 }
 
 type AssignmentHandler struct {
@@ -78,4 +81,38 @@ func (h *AssignmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respond.JSON(w, http.StatusOK, branch)
+}
+
+func (h *AssignmentHandler) ListByExperiment(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	experimentID := chi.URLParam(r, "id")
+
+	assignments, err := h.store.ListByExperiment(r.Context(), appID, experimentID)
+	if errors.Is(err, store.ErrNotFound) {
+		respond.Error(w, http.StatusNotFound, "experiment not found")
+		return
+	}
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "failed to list assignments")
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, assignments)
+}
+
+func (h *AssignmentHandler) GetExperimentDashboard(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appID")
+	experimentID := chi.URLParam(r, "id")
+
+	dashboard, err := h.store.GetExperimentDashboard(r.Context(), appID, experimentID)
+	if errors.Is(err, store.ErrNotFound) {
+		respond.Error(w, http.StatusNotFound, "experiment not found")
+		return
+	}
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "failed to load experiment dashboard")
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, dashboard)
 }

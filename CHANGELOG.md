@@ -2,6 +2,22 @@
 
 All notable changes to Prism should be documented in this file.
 
+## [1.0.2] - 2026-07-03
+
+### Added
+- Experiment-scoped assignment read endpoint at `GET /api/v1/applications/{appID}/experiments/{id}/assignments`
+- Experiment dashboard endpoint at `GET /api/v1/applications/{appID}/experiments/{id}/dashboard`
+- Dedicated frontend assignments page for viewing experiment user-to-branch assignments
+- Dedicated frontend dashboard page for comparing branch configured weights against actual assignment shares
+
+### Changed
+- Experiment detail pages now link directly to `Assignments` and `Dashboard` views
+- Assignment read responses now expose branch metadata needed for admin-facing analytics and review
+
+### Fixed
+- Dashboard summaries now include zero-assignment branches so misbalanced or newly launched experiments remain visible
+- Added handler and store coverage for assignment listing and experiment dashboard aggregation
+
 ## [1.0.1] - 2026-07-03
 
 ### Added

@@ -19,7 +19,7 @@ func Load() Config {
 
 	origins := os.Getenv("CORS_ALLOWED_ORIGINS")
 	if origins == "" {
-		origins = "http://localhost:5173"
+		origins = "http://localhost:5173,http://127.0.0.1:5500"
 	}
 
 	return Config{

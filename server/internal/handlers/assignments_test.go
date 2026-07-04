@@ -15,14 +15,26 @@ import (
 )
 
 type fakeAssignmentStore struct {
-	branch     *models.Branch
-	err        error
-	lastParams store.AssignParams
+	branch       *models.Branch
+	assignments  *models.ExperimentAssignmentsView
+	dashboard    *models.ExperimentDashboard
+	assignErr    error
+	listErr      error
+	dashboardErr error
+	lastParams   store.AssignParams
 }
 
 func (f *fakeAssignmentStore) Assign(_ context.Context, p store.AssignParams) (*models.Branch, error) {
 	f.lastParams = p
-	return f.branch, f.err
+	return f.branch, f.assignErr
+}
+
+func (f *fakeAssignmentStore) ListByExperiment(_ context.Context, applicationID, experimentID string) (*models.ExperimentAssignmentsView, error) {
+	return f.assignments, f.listErr
+}
+
+func (f *fakeAssignmentStore) GetExperimentDashboard(_ context.Context, applicationID, experimentID string) (*models.ExperimentDashboard, error) {
+	return f.dashboard, f.dashboardErr
 }
 
 func TestAssignmentHandlerCreateSuccess(t *testing.T) {
@@ -123,7 +135,7 @@ func TestAssignmentHandlerCreateMapsStoreErrors(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			handler := NewAssignmentHandler(&fakeAssignmentStore{err: tc.err})
+			handler := NewAssignmentHandler(&fakeAssignmentStore{assignErr: tc.err})
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/assign", strings.NewReader(`{
 				"user_id":"user_123",
 				"experiment_key":"exp-key"
@@ -138,4 +150,131 @@ func TestAssignmentHandlerCreateMapsStoreErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAssignmentHandlerListByExperiment(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		handler := NewAssignmentHandler(&fakeAssignmentStore{
+			assignments: &models.ExperimentAssignmentsView{
+				ExperimentID:     "exp_123",
+				ExperimentKey:    "checkout-button-color",
+				ExperimentName:   "Checkout Button Color",
+				ExperimentStatus: models.ExperimentStatusActive,
+				Assignments: []*models.ExperimentAssignmentListItem{
+					{
+						ID:         "assign_123",
+						UserID:     "user_123",
+						BranchID:   "branch_123",
+						BranchKey:  "control",
+						BranchName: "Control",
+					},
+				},
+			},
+		})
+		rec := httptest.NewRecorder()
+		req := newRequestWithURLParams(http.MethodGet, "/", "", map[string]string{"appID": "app_123", "id": "exp_123"})
+
+		handler.ListByExperiment(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+		}
+
+		var body models.ExperimentAssignmentsView
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		if body.ExperimentID != "exp_123" || len(body.Assignments) != 1 {
+			t.Fatalf("unexpected response: %#v", body)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		handler := NewAssignmentHandler(&fakeAssignmentStore{listErr: store.ErrNotFound})
+		rec := httptest.NewRecorder()
+		req := newRequestWithURLParams(http.MethodGet, "/", "", map[string]string{"appID": "app_123", "id": "exp_123"})
+
+		handler.ListByExperiment(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected status %d, got %d", http.StatusNotFound, rec.Code)
+		}
+	})
+
+	t.Run("unexpected", func(t *testing.T) {
+		handler := NewAssignmentHandler(&fakeAssignmentStore{listErr: errors.New("boom")})
+		rec := httptest.NewRecorder()
+		req := newRequestWithURLParams(http.MethodGet, "/", "", map[string]string{"appID": "app_123", "id": "exp_123"})
+
+		handler.ListByExperiment(rec, req)
+
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, rec.Code)
+		}
+	})
+}
+
+func TestAssignmentHandlerGetExperimentDashboard(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		handler := NewAssignmentHandler(&fakeAssignmentStore{
+			dashboard: &models.ExperimentDashboard{
+				ExperimentID:     "exp_123",
+				ExperimentKey:    "checkout-button-color",
+				ExperimentName:   "Checkout Button Color",
+				ExperimentStatus: models.ExperimentStatusActive,
+				TotalAssignments: 10,
+				BranchCount:      2,
+				Branches: []*models.ExperimentDashboardBranch{
+					{
+						BranchID:         "branch_123",
+						BranchKey:        "control",
+						BranchName:       "Control",
+						ConfiguredWeight: 50,
+						AssignmentCount:  5,
+						AssignmentShare:  50,
+					},
+				},
+			},
+		})
+		rec := httptest.NewRecorder()
+		req := newRequestWithURLParams(http.MethodGet, "/", "", map[string]string{"appID": "app_123", "id": "exp_123"})
+
+		handler.GetExperimentDashboard(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+		}
+
+		var body models.ExperimentDashboard
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		if body.TotalAssignments != 10 || body.BranchCount != 2 {
+			t.Fatalf("unexpected response: %#v", body)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		handler := NewAssignmentHandler(&fakeAssignmentStore{dashboardErr: store.ErrNotFound})
+		rec := httptest.NewRecorder()
+		req := newRequestWithURLParams(http.MethodGet, "/", "", map[string]string{"appID": "app_123", "id": "exp_123"})
+
+		handler.GetExperimentDashboard(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected status %d, got %d", http.StatusNotFound, rec.Code)
+		}
+	})
+
+	t.Run("unexpected", func(t *testing.T) {
+		handler := NewAssignmentHandler(&fakeAssignmentStore{dashboardErr: errors.New("boom")})
+		rec := httptest.NewRecorder()
+		req := newRequestWithURLParams(http.MethodGet, "/", "", map[string]string{"appID": "app_123", "id": "exp_123"})
+
+		handler.GetExperimentDashboard(rec, req)
+
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, rec.Code)
+		}
+	})
 }
