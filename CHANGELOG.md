@@ -2,6 +2,30 @@
 
 All notable changes to Prism should be documented in this file.
 
+## [1.0.4] - 2026-07-05
+
+### Added
+- Admin RBAC for the management API using JWT access tokens and rotating HttpOnly refresh cookies
+- Admin user management endpoints and UI for listing admins, sending invites, and activating or deactivating users
+- Email-based admin invite and activation flow with one-time invitation tokens and Gmail-compatible SMTP delivery
+- Public activation page at `/activate` for invited admins to set a password and sign in
+- Login page, admin shell layout, and route guards for protected admin console pages
+- Database migrations for `users`, `refresh_tokens`, and `invitation_tokens`
+
+### Changed
+- All management routes now require admin authentication; SDK-facing `POST /api/v1/assign` remains protected by application API keys
+- Admin creation now sends an email invite instead of accepting a password at invite time
+- CORS now allows credentials so refresh cookies can be used by the frontend
+- Updated `server/.env.example`, `server/README.md`, and `server/API.md` with auth, invite, and SMTP configuration
+
+### Fixed
+- Refresh token rotation now handles duplicate bootstrap refresh requests gracefully, avoiding logout on page reload in React Strict Mode
+- Corrected user creation SQL to persist invited status during admin invite creation
+
+### Security
+- Passwords are hashed with bcrypt; refresh and invitation tokens are stored as SHA-256 hashes
+- Invited users cannot log in until they activate their account through a valid invitation link
+
 ## [1.0.3] - 2026-07-03
 
 ### Changed

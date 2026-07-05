@@ -6,6 +6,8 @@ All request and response bodies use `application/json`.
 
 SDK-facing assignment requests authenticate with an application API key sent in either the `X-API-Key` header or `Authorization: Bearer <api_key>`.
 
+Admin-facing management requests authenticate with a short-lived JWT access token sent as `Authorization: Bearer <access_token>`. Session refresh uses an HttpOnly cookie on the `/api/v1/auth/*` routes.
+
 ---
 
 ## Health
@@ -83,7 +85,257 @@ Returns a branch object:
 
 ---
 
+## Admin Auth
+
+There is no public signup flow. The first admin is bootstrapped from server environment variables, and additional admin users are invited through the protected users API. Invited admins activate their account from a one-time email link.
+
+### `POST /api/v1/auth/login`
+
+Signs in an admin with email/password credentials.
+
+**Request body**
+```json
+{
+  "email": "admin@example.com",
+  "password": "correct horse battery staple"
+}
+```
+
+**Response `200`**
+```json
+{
+  "user": {
+    "id": "018f1e2a-3b4c-7d8e-9f0a-1b2c3d4e5f6a",
+    "email": "admin@example.com",
+    "role": "admin",
+    "status": "active",
+    "created_at": "2026-07-04T18:00:00Z",
+    "updated_at": "2026-07-04T18:00:00Z",
+    "last_login_at": "2026-07-04T18:00:00Z"
+  },
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "access_token_expires_at": "2026-07-04T18:15:00Z"
+}
+```
+
+Sets the refresh token as an HttpOnly cookie.
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `400`  | Request body is not valid JSON |
+| `401`  | Email/password is invalid |
+| `403`  | User is inactive, or invitation activation is still pending |
+| `422`  | `email` or `password` is missing |
+| `500`  | Server error |
+
+---
+
+### `POST /api/v1/auth/refresh`
+
+Rotates the refresh cookie and issues a new access token.
+
+**Response `200`** — same shape as the login response.
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `401`  | Refresh token is missing, expired, or invalid |
+| `403`  | User is inactive or no longer authorized |
+| `500`  | Server error |
+
+---
+
+### `POST /api/v1/auth/logout`
+
+Revokes the current refresh token and clears the refresh cookie.
+
+**Response `204`** — no body.
+
+---
+
+### `GET /api/v1/auth/invitations/{token}`
+
+Validates a one-time admin invitation token and returns invite details for the activation page.
+
+**Path parameters**
+
+| Parameter | Description |
+|-----------|-------------|
+| `token`   | One-time invitation token from the email link |
+
+**Response `200`**
+```json
+{
+  "email": "teammate@example.com",
+  "expires_at": "2026-07-07T18:00:00Z"
+}
+```
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `404`  | Invitation is invalid, expired, or already used |
+| `422`  | Invitation token is missing |
+| `500`  | Server error |
+
+---
+
+### `POST /api/v1/auth/invitations/activate`
+
+Consumes an invitation token, sets the invited admin's password, activates the account, and signs the user in.
+
+**Request body**
+```json
+{
+  "token": "invite_token_here",
+  "password": "correct horse battery staple"
+}
+```
+
+**Response `200`** — same shape as the login response.
+
+Sets the refresh token as an HttpOnly cookie.
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `400`  | Request body is not valid JSON |
+| `404`  | Invitation is invalid, expired, or already used |
+| `422`  | `token` or `password` is missing, or password is too short |
+| `500`  | Server error |
+
+---
+
+### `GET /api/v1/auth/me`
+
+Returns the currently authenticated admin user.
+
+**Headers**
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `Authorization` | yes | `Bearer <access_token>` |
+
+**Response `200`**
+```json
+{
+  "id": "018f1e2a-3b4c-7d8e-9f0a-1b2c3d4e5f6a",
+  "email": "admin@example.com",
+  "role": "admin",
+  "status": "active",
+  "created_at": "2026-07-04T18:00:00Z",
+  "updated_at": "2026-07-04T18:00:00Z",
+  "last_login_at": "2026-07-04T18:00:00Z"
+}
+```
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `401`  | Access token is missing or invalid |
+| `403`  | User is inactive or forbidden |
+| `500`  | Server error |
+
+---
+
+## Users
+
+All `/api/v1/users` endpoints require an admin access token.
+
+### User object
+
+| Field           | Type     | Description |
+|----------------|----------|-------------|
+| `id`           | `string` | UUID |
+| `email`        | `string` | Unique admin email |
+| `role`         | `string` | `admin` |
+| `status`       | `string` | `invited` \| `active` \| `inactive` |
+| `created_at`   | `string` | ISO 8601 timestamp |
+| `updated_at`   | `string` | ISO 8601 timestamp |
+| `last_login_at`| `string` | ISO 8601 timestamp or `null` |
+
+---
+
+### `GET /api/v1/users`
+
+Returns all admin users ordered by creation date, newest first.
+
+**Response `200`**
+```json
+[
+  {
+    "id": "018f1e2a-3b4c-7d8e-9f0a-1b2c3d4e5f6a",
+    "email": "admin@example.com",
+    "role": "admin",
+    "status": "active",
+    "created_at": "2026-07-04T18:00:00Z",
+    "updated_at": "2026-07-04T18:00:00Z",
+    "last_login_at": "2026-07-04T18:00:00Z"
+  }
+]
+```
+
+---
+
+### `POST /api/v1/users`
+
+Creates an invited admin account and sends the activation email.
+
+**Request body**
+```json
+{
+  "email": "teammate@example.com"
+}
+```
+
+**Response `201`** — returns the invited user object.
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `400`  | Request body is not valid JSON |
+| `409`  | User already exists, or an active invite already exists for that email |
+| `422`  | Email is invalid or missing |
+| `503`  | Invite email delivery is not configured |
+| `500`  | Server error while creating or sending the invite |
+
+---
+
+### `PATCH /api/v1/users/{id}`
+
+Activates or deactivates an admin user.
+
+**Request body**
+```json
+{
+  "status": "inactive"
+}
+```
+
+**Response `200`** — returns the updated user object.
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `400`  | Request body is not valid JSON |
+| `404`  | User not found |
+| `409`  | The request would deactivate the last active admin |
+| `422`  | `status` is not a valid value |
+| `500`  | Server error |
+
+---
+
 ## Applications
+
+All `/api/v1/applications/*` management routes require an admin access token.
 
 An application is the top-level entity in Prism. Each application has a unique API key used to authenticate SDK and ingestion requests.
 

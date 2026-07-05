@@ -1,16 +1,24 @@
 import { useEffect, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { applicationsApi, type Application } from "@/api/applications"
+import { experimentsApi, type Experiment } from "@/api/experiments"
 import { ApiError } from "@/api/client"
 import { ApplicationStatusToggle } from "@/components/ApplicationStatusToggle"
+import { ExperimentStatusToggle } from "@/components/ExperimentStatusToggle"
+import { StatusBadge } from "@/components/StatusBadge"
 import { Button } from "@/components/ui/button"
 import { APPLICATION_NAME_MAX_LENGTH, validateApplicationName } from "@/lib/applicationName"
+
+function formatBranchCount(count: number) {
+  return `${count} branch${count === 1 ? "" : "es"}`
+}
 
 export default function ApplicationDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
 
   const [app, setApp] = useState<Application | null>(null)
+  const [experiments, setExperiments] = useState<Experiment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -21,6 +29,8 @@ export default function ApplicationDetailPage() {
 
   const [statusLoading, setStatusLoading] = useState(false)
   const [statusError, setStatusError] = useState<string | null>(null)
+  const [togglingExperimentId, setTogglingExperimentId] = useState<string | null>(null)
+  const [toggleError, setToggleError] = useState<string | null>(null)
 
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -30,11 +40,11 @@ export default function ApplicationDetailPage() {
   useEffect(() => {
     if (!id) return
 
-    applicationsApi
-      .get(id)
-      .then((data) => {
-        setApp(data)
-        setEditName(data.name)
+    Promise.all([applicationsApi.get(id), experimentsApi.list(id)])
+      .then(([appData, experimentData]) => {
+        setApp(appData)
+        setEditName(appData.name)
+        setExperiments(experimentData)
       })
       .catch((err) => {
         setError(
@@ -93,6 +103,45 @@ export default function ApplicationDetailPage() {
       setStatusError(err instanceof ApiError ? err.message : "Failed to update status")
     } finally {
       setStatusLoading(false)
+    }
+  }
+
+  async function handleExperimentToggle(experiment: Experiment) {
+    if (!id || togglingExperimentId || experiment.status === "completed") return
+
+    const previousStatus = experiment.status
+    const nextStatus = previousStatus === "active" ? "paused" : "active"
+
+    setTogglingExperimentId(experiment.id)
+    setToggleError(null)
+    setExperiments((current) =>
+      current.map((item) =>
+        item.id === experiment.id ? { ...item, status: nextStatus } : item,
+      ),
+    )
+
+    try {
+      const updated = await experimentsApi.update(id, experiment.id, {
+        name: experiment.name,
+        description: experiment.description,
+        status: nextStatus,
+        start_date: experiment.start_date,
+        end_date: experiment.end_date,
+      })
+      setExperiments((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      )
+    } catch (err) {
+      setExperiments((current) =>
+        current.map((item) =>
+          item.id === experiment.id ? { ...item, status: previousStatus } : item,
+        ),
+      )
+      setToggleError(
+        err instanceof ApiError ? err.message : "Failed to update experiment status",
+      )
+    } finally {
+      setTogglingExperimentId(null)
     }
   }
 
@@ -243,20 +292,94 @@ export default function ApplicationDetailPage() {
               </dl>
             </div>
 
-            <Link
-              to={`/applications/${app.id}/experiments`}
-              className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-8 py-6 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
-            >
-              <div>
-                <h2 className="text-base font-medium text-slate-900">Experiments</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {app.status === "inactive"
-                    ? "View experiments. New experiments are disabled while the application is inactive."
-                    : "Manage A/B tests for this application."}
-                </p>
+            <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-base font-medium text-slate-900">Experiments</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {app.status === "inactive"
+                      ? "View experiments here. New experiments are disabled while the application is inactive."
+                      : "Manage A/B tests for this application without leaving the page."}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    type="button"
+                    onClick={() => navigate(`/applications/${app.id}/experiments`)}
+                    disabled={app.status === "inactive"}
+                  >
+                    New experiment
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => navigate(`/applications/${app.id}/experiments`)}
+                  >
+                    Manage
+                  </Button>
+                </div>
               </div>
-              <span className="text-slate-400">→</span>
-            </Link>
+
+              {toggleError && (
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {toggleError}
+                </div>
+              )}
+
+              {experiments.length === 0 ? (
+                <div className="mt-6 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-12 text-center">
+                  <p className="text-sm text-slate-500">No experiments yet.</p>
+                  <Link
+                    to={`/applications/${app.id}/experiments`}
+                    className="mt-3 inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50"
+                  >
+                    {app.status === "inactive" ? "Open experiments" : "Create your first experiment"}
+                  </Link>
+                </div>
+              ) : (
+                <ul className="mt-6 space-y-3">
+                  {experiments.map((experiment) => (
+                    <li key={experiment.id}>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-6 py-4">
+                        <div className="flex items-center justify-between gap-4">
+                          <Link
+                            to={`/applications/${app.id}/experiments/${experiment.id}`}
+                            className="min-w-0 flex-1 transition-colors hover:text-slate-700"
+                          >
+                            <div className="flex items-center gap-3">
+                              <p className="font-medium text-slate-900">{experiment.name}</p>
+                              <StatusBadge status={experiment.status} />
+                              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
+                                {formatBranchCount(experiment.branches.length)}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 font-mono text-xs text-slate-400">
+                              {experiment.key}
+                            </p>
+                            {experiment.description && (
+                              <p className="mt-1 truncate text-sm text-slate-500">
+                                {experiment.description}
+                              </p>
+                            )}
+                          </Link>
+
+                          <div className="flex shrink-0 items-center gap-4">
+                            <span className="text-xs text-slate-400">
+                              {new Date(experiment.created_at).toLocaleDateString()}
+                            </span>
+                            <ExperimentStatusToggle
+                              status={experiment.status}
+                              disabled={togglingExperimentId === experiment.id}
+                              onToggle={() => handleExperimentToggle(experiment)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
 
             <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
               <div className="flex items-center justify-between">

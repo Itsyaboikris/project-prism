@@ -41,6 +41,24 @@ The required variables are:
 |----------------|------------------------------------|---------------------------------------------------------------|
 | `DATABASE_URL` | PostgreSQL connection string       | `postgres://postgres:postgres@localhost:5432/prism?sslmode=disable` |
 | `PORT`         | HTTP port the server listens on    | `8080`                                                        |
+| `AUTH_JWT_SECRET` | HMAC secret for access tokens   | `dev-secret-change-me`                                        |
+| `AUTH_ACCESS_TOKEN_TTL` | Access token lifetime     | `15m`                                                         |
+| `AUTH_REFRESH_TOKEN_TTL` | Refresh token lifetime   | `168h`                                                        |
+| `AUTH_INVITE_TOKEN_TTL` | Invite link lifetime     | `72h`                                                         |
+| `AUTH_REFRESH_COOKIE_NAME` | Refresh cookie name    | `prism_refresh`                                               |
+| `AUTH_COOKIE_SECURE` | Secure refresh cookie flag   | `false`                                                       |
+| `AUTH_COOKIE_SAME_SITE` | Refresh cookie same-site mode | `lax`                                                    |
+| `AUTH_REFRESH_COOKIE_PATH` | Refresh cookie path    | `/api/v1/auth`                                                |
+| `AUTH_COOKIE_DOMAIN` | Optional refresh cookie domain | _empty_                                                   |
+| `APP_BASE_URL` | Frontend base URL used in invite links | `http://localhost:5713`                             |
+| `SMTP_HOST` | SMTP server host for invite emails | `smtp.gmail.com`                                          |
+| `SMTP_PORT` | SMTP server port | `587`                                                                     |
+| `SMTP_USERNAME` | SMTP username | _empty_                                                                     |
+| `SMTP_PASSWORD` | SMTP password or Gmail app password | _empty_                                             |
+| `SMTP_FROM_EMAIL` | Sender email address | _empty_                                                              |
+| `SMTP_FROM_NAME` | Sender display name | `Prism Admin`                                                           |
+| `BOOTSTRAP_ADMIN_EMAIL` | Bootstrap admin email     | `admin@example.com`                                           |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Bootstrap admin password | `change-me-admin-password`                                 |
 
 ## Database
 
@@ -136,8 +154,23 @@ server/
 | `experiments`  | A/B test belonging to an application             |
 | `branches`     | Variants within an experiment with traffic weights |
 | `assignments`  | Tracks which branch a user was assigned to       |
+| `users`        | Admin accounts used to access the management API |
+| `refresh_tokens` | Rotating refresh tokens for admin sessions     |
+| `invitation_tokens` | One-time activation tokens for invited admins |
 
 Applications support both `status` (`active` or `inactive`) and soft delete. Inactive applications remain visible, but cannot create new experiments.
+
+Users are global admin identities for the Prism dashboard. There is no public signup flow: the first admin is bootstrapped from environment variables, then additional admins are invited by email through the protected `/api/v1/users` API. Invited admins activate their account from a one-time link, set a password, and are signed in automatically.
+
+## Gmail SMTP
+
+Prism uses SMTP directly for admin invite emails. For Gmail:
+
+1. Turn on 2-Step Verification for the Gmail account.
+2. Create an App Password in the Google account settings.
+3. Set `SMTP_USERNAME` to the Gmail address and `SMTP_PASSWORD` to the App Password.
+4. Set `SMTP_HOST=smtp.gmail.com` and `SMTP_PORT=587`.
+5. Set `APP_BASE_URL` to the frontend origin that serves the activation page.
 
 ## Current API
 
@@ -149,16 +182,25 @@ Current routes:
 |--------|------|-------------|
 | `GET`  | `/health` | Service health check |
 | `POST` | `/api/v1/assign` | Assign a user to a branch using the application API key |
-| `GET`  | `/api/v1/applications` | List all applications |
-| `POST` | `/api/v1/applications` | Create an application |
-| `GET`  | `/api/v1/applications/{id}` | Get an application |
-| `PUT`  | `/api/v1/applications/{id}` | Update an application name or status |
-| `DELETE` | `/api/v1/applications/{id}` | Soft-delete an application (cascades to experiments and branches) |
-| `GET`  | `/api/v1/applications/{appID}/experiments` | List experiments (branches embedded) |
-| `POST` | `/api/v1/applications/{appID}/experiments` | Create an experiment (optional initial branches) |
-| `GET`  | `/api/v1/applications/{appID}/experiments/{id}` | Get an experiment (branches embedded) |
-| `PUT`  | `/api/v1/applications/{appID}/experiments/{id}` | Update an experiment (branches embedded in response) |
-| `DELETE` | `/api/v1/applications/{appID}/experiments/{id}` | Soft-delete an experiment (cascades to branches) |
-| `POST` | `/api/v1/applications/{appID}/experiments/{experimentID}/branches` | Add a branch to an experiment |
-| `PUT`  | `/api/v1/applications/{appID}/experiments/{experimentID}/branches/{id}` | Update a branch |
-| `DELETE` | `/api/v1/applications/{appID}/experiments/{experimentID}/branches/{id}` | Soft-delete a branch |
+| `POST` | `/api/v1/auth/login` | Sign in an admin and set the refresh cookie |
+| `POST` | `/api/v1/auth/refresh` | Rotate the refresh cookie and issue a new access token |
+| `POST` | `/api/v1/auth/logout` | Revoke the current refresh token and clear the cookie |
+| `GET`  | `/api/v1/auth/invitations/{token}` | Validate an invite token and return invite details |
+| `POST` | `/api/v1/auth/invitations/activate` | Activate an invited admin, set password, and issue a session |
+| `GET`  | `/api/v1/auth/me` | Return the current admin user |
+| `GET`  | `/api/v1/users` | List admin users |
+| `POST` | `/api/v1/users` | Send an admin invite email |
+| `PATCH` | `/api/v1/users/{id}` | Activate or deactivate an admin user |
+| `GET`  | `/api/v1/applications` | List all applications (admin only) |
+| `POST` | `/api/v1/applications` | Create an application (admin only) |
+| `GET`  | `/api/v1/applications/{id}` | Get an application (admin only) |
+| `PUT`  | `/api/v1/applications/{id}` | Update an application name or status (admin only) |
+| `DELETE` | `/api/v1/applications/{id}` | Soft-delete an application (admin only) |
+| `GET`  | `/api/v1/applications/{appID}/experiments` | List experiments (admin only) |
+| `POST` | `/api/v1/applications/{appID}/experiments` | Create an experiment (admin only) |
+| `GET`  | `/api/v1/applications/{appID}/experiments/{id}` | Get an experiment (admin only) |
+| `PUT`  | `/api/v1/applications/{appID}/experiments/{id}` | Update an experiment (admin only) |
+| `DELETE` | `/api/v1/applications/{appID}/experiments/{id}` | Soft-delete an experiment (admin only) |
+| `POST` | `/api/v1/applications/{appID}/experiments/{experimentID}/branches` | Add a branch (admin only) |
+| `PUT`  | `/api/v1/applications/{appID}/experiments/{experimentID}/branches/{id}` | Update a branch (admin only) |
+| `DELETE` | `/api/v1/applications/{appID}/experiments/{experimentID}/branches/{id}` | Soft-delete a branch (admin only) |
