@@ -29,6 +29,23 @@ export interface ListEventsParams {
   offset?: number
 }
 
+export interface CreateEventInput {
+  user_id: string
+  event_name: string
+  experiment_key?: string
+  properties?: Record<string, unknown> | null
+}
+
+export interface CreatedEvent {
+  id: string
+  user_id: string
+  event_name: string
+  experiment_id: string | null
+  branch_id: string | null
+  properties: unknown
+  occurred_at: string
+}
+
 function buildEventsQuery(params?: ListEventsParams) {
   if (!params) return ""
   const qs = new URLSearchParams()
@@ -44,4 +61,7 @@ export const eventsApi = {
     api.get<ExperimentEventsView>(
       `/api/v1/applications/${appId}/experiments/${experimentId}/events${buildEventsQuery(params)}`,
     ),
+
+  create: (apiKey: string, body: CreateEventInput) =>
+    api.post<CreatedEvent>("/api/v1/events", body, { auth: false, apiKey }),
 }

@@ -1,9 +1,20 @@
 import { useEffect, useMemo, useState } from "react"
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom"
+import { FlaskConical } from "lucide-react"
 import { authApi } from "@/api/auth"
 import { ApiError } from "@/api/client"
 import { useAuth } from "@/auth/AuthContext"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import { validateAdminPassword } from "@/lib/adminUsers"
 
 export default function ActivateInvitePage() {
@@ -69,69 +80,81 @@ export default function ActivateInvitePage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6 py-12">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Activate admin account</h1>
-        <p className="mt-2 text-sm text-slate-500">
-          Set your password to finish joining the Prism admin console.
-        </p>
-
-        {inviteLoading && <p className="mt-6 text-sm text-slate-400">Loading invitation…</p>}
-
-        {!inviteLoading && inviteError && (
-          <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {inviteError}
-          </div>
-        )}
-
-        {!inviteLoading && !inviteError && (
-          <>
-            <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-              Invited email: <span className="font-medium text-slate-900">{email}</span>
+    <div className="auth-shell">
+      <div className="auth-card">
+        <Card>
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-2 flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+              <FlaskConical className="size-5" />
             </div>
-
-            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-              <div>
-                <label className="text-sm font-medium text-slate-700">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="new-password"
-                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                  disabled={submitting}
-                />
+            <CardTitle className="text-xl">Activate account</CardTitle>
+            <CardDescription>Set your password to join the Prism admin console.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {inviteLoading && (
+              <div className="space-y-3">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
               </div>
+            )}
 
-              <div>
-                <label className="text-sm font-medium text-slate-700">Confirm password</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  autoComplete="new-password"
-                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                  disabled={submitting}
-                />
+            {!inviteLoading && inviteError && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {inviteError}
               </div>
+            )}
 
-              {submitError && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {submitError}
+            {!inviteLoading && !inviteError && (
+              <>
+                <div className="mb-4 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">Invited as </span>
+                  <span className="font-medium">{email}</span>
                 </div>
-              )}
 
-              <Button
-                type="submit"
-                size="lg"
-                className="w-full"
-                disabled={submitting || Boolean(passwordError) || Boolean(confirmPasswordError)}
-              >
-                {submitting ? "Activating…" : "Activate account"}
-              </Button>
-            </form>
-          </>
-        )}
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="new-password"
+                      disabled={submitting}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm-password">Confirm password</Label>
+                    <Input
+                      id="confirm-password"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      autoComplete="new-password"
+                      disabled={submitting}
+                    />
+                  </div>
+
+                  {submitError && (
+                    <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      {submitError}
+                    </div>
+                  )}
+
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    size="lg"
+                    disabled={submitting || Boolean(passwordError) || Boolean(confirmPasswordError)}
+                  >
+                    {submitting ? "Activating…" : "Activate account"}
+                  </Button>
+                </form>
+              </>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

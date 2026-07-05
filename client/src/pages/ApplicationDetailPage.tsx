@@ -1,17 +1,49 @@
 import { useEffect, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
+import {
+  AlertTriangle,
+  Check,
+  Copy,
+  FlaskConical,
+  Key,
+  Pencil,
+  Plus,
+  Settings,
+  Trash2,
+} from "lucide-react"
+import { toast } from "sonner"
 import { applicationsApi, type Application } from "@/api/applications"
 import { experimentsApi, type Experiment } from "@/api/experiments"
 import { ApiError } from "@/api/client"
 import { ApplicationStatusToggle } from "@/components/ApplicationStatusToggle"
+import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog"
+import { EmptyState, EmptyStateButton } from "@/components/EmptyState"
+import { ErrorState } from "@/components/ErrorState"
 import { ExperimentStatusToggle } from "@/components/ExperimentStatusToggle"
+import { PageHeader } from "@/components/PageHeader"
+import { PageLoading } from "@/components/PageLoading"
 import { StatusBadge } from "@/components/StatusBadge"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { APPLICATION_NAME_MAX_LENGTH, validateApplicationName } from "@/lib/applicationName"
-
-function formatBranchCount(count: number) {
-  return `${count} branch${count === 1 ? "" : "es"}`
-}
 
 export default function ApplicationDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -21,6 +53,7 @@ export default function ApplicationDetailPage() {
   const [experiments, setExperiments] = useState<Experiment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState("overview")
 
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState("")
@@ -28,13 +61,11 @@ export default function ApplicationDetailPage() {
   const [editError, setEditError] = useState<string | null>(null)
 
   const [statusLoading, setStatusLoading] = useState(false)
-  const [statusError, setStatusError] = useState<string | null>(null)
   const [togglingExperimentId, setTogglingExperimentId] = useState<string | null>(null)
-  const [toggleError, setToggleError] = useState<string | null>(null)
 
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
-
   const [keyCopied, setKeyCopied] = useState(false)
 
   useEffect(() => {
@@ -70,13 +101,14 @@ export default function ApplicationDetailPage() {
     setEditLoading(true)
     setEditError(null)
     try {
-      const updated = await applicationsApi.update(app.id, {
-        name: editName.trim(),
-      })
+      const updated = await applicationsApi.update(app.id, { name: editName.trim() })
       setApp(updated)
       setEditing(false)
+      toast.success("Changes saved")
     } catch (err) {
-      setEditError(err instanceof ApiError ? err.message : "Failed to update application")
+      const message = err instanceof ApiError ? err.message : "Failed to update application"
+      setEditError(message)
+      toast.error(message)
     } finally {
       setEditLoading(false)
     }
@@ -89,7 +121,6 @@ export default function ApplicationDetailPage() {
     const nextStatus = previousStatus === "active" ? "inactive" : "active"
 
     setStatusLoading(true)
-    setStatusError(null)
     setApp({ ...app, status: nextStatus })
 
     try {
@@ -98,9 +129,10 @@ export default function ApplicationDetailPage() {
         status: nextStatus,
       })
       setApp(updated)
+      toast.success("Status updated")
     } catch (err) {
       setApp({ ...app, status: previousStatus })
-      setStatusError(err instanceof ApiError ? err.message : "Failed to update status")
+      toast.error(err instanceof ApiError ? err.message : "Failed to update status")
     } finally {
       setStatusLoading(false)
     }
@@ -113,7 +145,6 @@ export default function ApplicationDetailPage() {
     const nextStatus = previousStatus === "active" ? "paused" : "active"
 
     setTogglingExperimentId(experiment.id)
-    setToggleError(null)
     setExperiments((current) =>
       current.map((item) =>
         item.id === experiment.id ? { ...item, status: nextStatus } : item,
@@ -131,15 +162,14 @@ export default function ApplicationDetailPage() {
       setExperiments((current) =>
         current.map((item) => (item.id === updated.id ? updated : item)),
       )
+      toast.success("Status updated")
     } catch (err) {
       setExperiments((current) =>
         current.map((item) =>
           item.id === experiment.id ? { ...item, status: previousStatus } : item,
         ),
       )
-      setToggleError(
-        err instanceof ApiError ? err.message : "Failed to update experiment status",
-      )
+      toast.error(err instanceof ApiError ? err.message : "Failed to update experiment status")
     } finally {
       setTogglingExperimentId(null)
     }
@@ -147,75 +177,110 @@ export default function ApplicationDetailPage() {
 
   function handleCopyKey() {
     if (!app?.api_key) return
-
     navigator.clipboard.writeText(app.api_key).then(() => {
       setKeyCopied(true)
+      toast.success("API key copied")
       setTimeout(() => setKeyCopied(false), 2000)
     })
   }
 
   async function handleDelete() {
     if (!app) return
-    if (!window.confirm(`Delete "${app.name}"? This will also remove its experiments and branches.`)) {
-      return
-    }
 
     setDeleteLoading(true)
     setDeleteError(null)
     try {
       await applicationsApi.delete(app.id)
+      toast.success(`Deleted ${app.name}`)
       navigate("/applications")
     } catch (err) {
-      setDeleteError(err instanceof ApiError ? err.message : "Failed to delete application")
+      const message = err instanceof ApiError ? err.message : "Failed to delete application"
+      setDeleteError(message)
+      toast.error(message)
       setDeleteLoading(false)
     }
   }
 
+  function openCreateExperiment() {
+    navigate(`/applications/${app!.id}/experiments/new`)
+  }
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-4xl px-6 py-12">
-        <Link
-          to="/applications"
-          className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900"
-        >
-          ← Applications
-        </Link>
+    <>
+      {loading && <PageLoading rows={4} />}
+      {!loading && error && <ErrorState message={error} />}
 
-        {loading && (
-          <div className="mt-12 flex items-center justify-center text-sm text-slate-400">
-            Loading…
-          </div>
-        )}
+      {!loading && !error && app && (
+        <>
+          <PageHeader
+            title={app.name}
+            description="Application settings, experiments, and API credentials."
+            breadcrumbs={[
+              { label: "Applications", href: "/applications" },
+              { label: app.name },
+            ]}
+            actions={
+              !editing ? (
+                <div className="flex items-center gap-3">
+                  <ApplicationStatusToggle
+                    status={app.status}
+                    disabled={statusLoading}
+                    onToggle={handleStatusToggle}
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => setEditing(true)}
+                    disabled={statusLoading}
+                  >
+                    <Pencil />
+                    Rename
+                  </Button>
+                </div>
+              ) : undefined
+            }
+          />
 
-        {!loading && error && (
-          <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList>
+              <TabsTrigger value="overview">
+                <Settings className="size-4" />
+                Overview
+              </TabsTrigger>
+              <TabsTrigger value="experiments">
+                <FlaskConical className="size-4" />
+                Experiments ({experiments.length})
+              </TabsTrigger>
+              <TabsTrigger value="api-key">
+                <Key className="size-4" />
+                API key
+              </TabsTrigger>
+              <TabsTrigger value="danger">
+                <AlertTriangle className="size-4" />
+                Danger zone
+              </TabsTrigger>
+            </TabsList>
 
-        {!loading && !error && app && (
-          <div className="mt-6 space-y-6">
-            <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-              <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0 flex-1">
+            <TabsContent value="overview" className="mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Details</CardTitle>
+                  <CardDescription>Application metadata and identity.</CardDescription>
+                </CardHeader>
+                <CardContent>
                   {editing ? (
-                    <form onSubmit={handleSave} className="space-y-3">
-                      <div>
-                        <label className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                          Name
-                        </label>
-                        <input
+                    <form onSubmit={handleSave} className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="app-rename">Name</Label>
+                        <Input
+                          id="app-rename"
                           autoFocus
-                          type="text"
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
                           maxLength={APPLICATION_NAME_MAX_LENGTH}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                           disabled={editLoading}
                         />
                       </div>
-
-                      <div className="flex flex-wrap gap-3">
+                      <div className="flex gap-2">
                         <Button
                           type="submit"
                           disabled={editLoading || Boolean(validateApplicationName(editName))}
@@ -234,190 +299,195 @@ export default function ApplicationDetailPage() {
                           Cancel
                         </Button>
                       </div>
+                      {editError && <p className="text-sm text-destructive">{editError}</p>}
                     </form>
                   ) : (
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="min-w-0 flex-1">
-                        <h1 className="wrap-break-word text-2xl font-semibold tracking-tight text-slate-900">
-                          {app.name}
-                        </h1>
+                    <dl className="grid gap-4 sm:grid-cols-3">
+                      <div>
+                        <dt className="text-xs text-muted-foreground">ID</dt>
+                        <dd className="mt-1 font-mono text-sm">{app.id}</dd>
                       </div>
-                      <Button
-                        variant="outline"
-                        onClick={() => setEditing(true)}
-                        className="shrink-0"
-                        disabled={statusLoading}
-                      >
-                        Rename
-                      </Button>
-                    </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">Status</dt>
+                        <dd className="mt-1">
+                          <Badge variant="outline" className="capitalize">
+                            {app.status}
+                          </Badge>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">Created</dt>
+                        <dd className="mt-1 text-sm">{new Date(app.created_at).toLocaleString()}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-muted-foreground">Last updated</dt>
+                        <dd className="mt-1 text-sm">{new Date(app.updated_at).toLocaleString()}</dd>
+                      </div>
+                    </dl>
                   )}
-                </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-                <ApplicationStatusToggle
-                  status={app.status}
-                  disabled={statusLoading}
-                  onToggle={handleStatusToggle}
-                />
-              </div>
-
-              {editError && (
-                <p className="mt-2 text-sm text-red-600">{editError}</p>
-              )}
-              {statusError && (
-                <p className="mt-2 text-sm text-red-600">{statusError}</p>
-              )}
-
-              <dl className="mt-6 grid gap-4 sm:grid-cols-2">
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">ID</dt>
-                  <dd className="mt-1 font-mono text-sm text-slate-700">{app.id}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                    Created
-                  </dt>
-                  <dd className="mt-1 text-sm text-slate-700">
-                    {new Date(app.created_at).toLocaleString()}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                    Last updated
-                  </dt>
-                  <dd className="mt-1 text-sm text-slate-700">
-                    {new Date(app.updated_at).toLocaleString()}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <h2 className="text-base font-medium text-slate-900">Experiments</h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {app.status === "inactive"
-                      ? "View experiments here. New experiments are disabled while the application is inactive."
-                      : "Manage A/B tests for this application without leaving the page."}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    type="button"
-                    onClick={() => navigate(`/applications/${app.id}/experiments`)}
-                    disabled={app.status === "inactive"}
-                  >
-                    New experiment
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => navigate(`/applications/${app.id}/experiments`)}
-                  >
-                    Manage
-                  </Button>
-                </div>
-              </div>
-
-              {toggleError && (
-                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                  {toggleError}
-                </div>
-              )}
-
-              {experiments.length === 0 ? (
-                <div className="mt-6 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-12 text-center">
-                  <p className="text-sm text-slate-500">No experiments yet.</p>
-                  <Link
-                    to={`/applications/${app.id}/experiments`}
-                    className="mt-3 inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50"
-                  >
-                    {app.status === "inactive" ? "Open experiments" : "Create your first experiment"}
-                  </Link>
-                </div>
-              ) : (
-                <ul className="mt-6 space-y-3">
-                  {experiments.map((experiment) => (
-                    <li key={experiment.id}>
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-6 py-4">
-                        <div className="flex items-center justify-between gap-4">
-                          <Link
-                            to={`/applications/${app.id}/experiments/${experiment.id}`}
-                            className="min-w-0 flex-1 transition-colors hover:text-slate-700"
+            <TabsContent value="experiments" className="mt-4">
+              <Card>
+                <CardHeader className="flex-row items-start justify-between space-y-0">
+                  <div>
+                    <CardTitle>Experiments</CardTitle>
+                    <CardDescription>
+                      {app.status === "inactive"
+                        ? "New experiments are disabled while the application is inactive."
+                        : "A/B tests running under this application."}
+                    </CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={openCreateExperiment} disabled={app.status === "inactive"}>
+                      <Plus />
+                      New experiment
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => navigate(`/applications/${app.id}/experiments`)}
+                    >
+                      Manage all
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {experiments.length === 0 ? (
+                    <div className="p-6">
+                      <EmptyState
+                        icon={FlaskConical}
+                        title="No experiments yet"
+                        description={
+                          app.status === "inactive"
+                            ? "Reactivate the application to create experiments."
+                            : "Create an A/B test to start assigning users to variants."
+                        }
+                        action={
+                          <EmptyStateButton
+                            onClick={openCreateExperiment}
+                            disabled={app.status === "inactive"}
                           >
-                            <div className="flex items-center gap-3">
-                              <p className="font-medium text-slate-900">{experiment.name}</p>
-                              <StatusBadge status={experiment.status} />
-                              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
-                                {formatBranchCount(experiment.branches.length)}
-                              </span>
-                            </div>
-                            <p className="mt-0.5 font-mono text-xs text-slate-400">
-                              {experiment.key}
-                            </p>
-                            {experiment.description && (
-                              <p className="mt-1 truncate text-sm text-slate-500">
-                                {experiment.description}
+                            Create experiment
+                          </EmptyStateButton>
+                        }
+                      />
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="hidden md:table-cell">Key</TableHead>
+                          <TableHead className="hidden sm:table-cell">Created</TableHead>
+                          <TableHead className="text-right">Active</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {experiments.map((experiment) => (
+                          <TableRow key={experiment.id}>
+                            <TableCell>
+                              <Link
+                                to={`/applications/${app.id}/experiments/${experiment.id}`}
+                                className="font-medium hover:text-primary"
+                              >
+                                {experiment.name}
+                              </Link>
+                              <p className="mt-0.5 text-xs text-muted-foreground md:hidden font-mono">
+                                {experiment.key}
                               </p>
-                            )}
-                          </Link>
-
-                          <div className="flex shrink-0 items-center gap-4">
-                            <span className="text-xs text-slate-400">
+                            </TableCell>
+                            <TableCell>
+                              <StatusBadge status={experiment.status} />
+                            </TableCell>
+                            <TableCell className="hidden font-mono text-xs text-muted-foreground md:table-cell">
+                              {experiment.key}
+                            </TableCell>
+                            <TableCell className="hidden text-muted-foreground sm:table-cell">
                               {new Date(experiment.created_at).toLocaleDateString()}
-                            </span>
-                            <ExperimentStatusToggle
-                              status={experiment.status}
-                              disabled={togglingExperimentId === experiment.id}
-                              onToggle={() => handleExperimentToggle(experiment)}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <ExperimentStatusToggle
+                                status={experiment.status}
+                                disabled={togglingExperimentId === experiment.id}
+                                onToggle={() => handleExperimentToggle(experiment)}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-medium text-slate-900">API Key</h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Use this key to authenticate SDK and ingestion requests. It cannot be retrieved
-                    again after leaving this page.
-                  </p>
-                </div>
-                <Button variant="outline" onClick={handleCopyKey}>
-                  {keyCopied ? "Copied!" : "Copy"}
-                </Button>
-              </div>
-              <div className="mt-4 rounded-lg bg-slate-50 px-4 py-3 font-mono text-sm text-slate-700 break-all">
-                {app.api_key}
-              </div>
-            </div>
+            <TabsContent value="api-key" className="mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>API key</CardTitle>
+                  <CardDescription>
+                    Authenticate SDK and ingestion requests. Copy now — it won't be shown again.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-4 py-3">
+                    <code className="min-w-0 flex-1 font-mono text-sm break-all">{app.api_key}</code>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={handleCopyKey}
+                      aria-label={keyCopied ? "API key copied" : "Copy API key"}
+                      className="shrink-0"
+                    >
+                      {keyCopied ? <Check /> : <Copy />}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-            <div className="rounded-xl border border-red-200 bg-white p-8 shadow-sm">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-base font-medium text-slate-900">Delete Application</h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    This soft-deletes the application and cascades to its experiments and branches.
-                  </p>
-                </div>
-                <Button variant="destructive" onClick={handleDelete} disabled={deleteLoading}>
-                  {deleteLoading ? "Deleting…" : "Delete"}
-                </Button>
-              </div>
-              {deleteError && (
-                <p className="mt-3 text-sm text-red-600">{deleteError}</p>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+            <TabsContent value="danger" className="mt-4">
+              <Card className="border-destructive/30">
+                <CardHeader className="flex-row items-start justify-between space-y-0">
+                  <div>
+                    <CardTitle>Delete application</CardTitle>
+                    <CardDescription>
+                      Deletesthis application and all its experiments and branches.
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setDeleteDialogOpen(true)}
+                    disabled={deleteLoading}
+                  >
+                    <Trash2 />
+                    Delete
+                  </Button>
+                </CardHeader>
+                {deleteError && (
+                  <CardContent className="pt-0">
+                    <p className="text-sm text-destructive">{deleteError}</p>
+                  </CardContent>
+                )}
+              </Card>
+            </TabsContent>
+          </Tabs>
+
+          <ConfirmDeleteDialog
+            open={deleteDialogOpen}
+            onOpenChange={setDeleteDialogOpen}
+            title={`Delete ${app.name}?`}
+            description="This will Delete the application and cascade to its experiments and branches. This action cannot be undone."
+            loading={deleteLoading}
+            onConfirm={handleDelete}
+          />
+        </>
+      )}
+    </>
   )
 }

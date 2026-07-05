@@ -13,6 +13,7 @@ export class ApiError extends Error {
 export interface RequestOptions {
   auth?: boolean
   retryOn401?: boolean
+  apiKey?: string
 }
 
 type RefreshHandler = () => Promise<boolean>
@@ -39,7 +40,9 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
   if (init?.body !== undefined && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json")
   }
-  if (options?.auth !== false && accessToken) {
+  if (options?.apiKey) {
+    headers.set("X-API-Key", options.apiKey)
+  } else if (options?.auth !== false && accessToken) {
     headers.set("Authorization", `Bearer ${accessToken}`)
   }
 

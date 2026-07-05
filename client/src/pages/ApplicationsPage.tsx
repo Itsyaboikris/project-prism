@@ -1,12 +1,36 @@
 import { useEffect, useRef, useState } from "react"
-import { Link } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
+import { ChevronRight, LayoutGrid, Plus } from "lucide-react"
+import { toast } from "sonner"
 import { applicationsApi, type Application } from "@/api/applications"
 import { ApiError } from "@/api/client"
 import { ApplicationStatusBadge } from "@/components/ApplicationStatusBadge"
+import { EmptyState, EmptyStateButton } from "@/components/EmptyState"
+import { ErrorState } from "@/components/ErrorState"
+import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { TableLoading } from "@/components/PageLoading"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { APPLICATION_NAME_MAX_LENGTH, validateApplicationName } from "@/lib/applicationName"
 
 export default function ApplicationsPage() {
+  const navigate = useNavigate()
   const [apps, setApps] = useState<Application[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -46,116 +70,138 @@ export default function ApplicationsPage() {
       setApps((prev) => [app, ...prev])
       setCreating(false)
       setNewName("")
+      toast.success("Application created")
     } catch (err) {
-      setCreateError(err instanceof ApiError ? err.message : "Failed to create application")
+      const message = err instanceof ApiError ? err.message : "Failed to create application"
+      setCreateError(message)
+      toast.error(message)
     } finally {
       setCreateLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-4xl px-6 py-12">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Applications</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Each application has a unique API key used for SDK and ingestion requests.
-            </p>
-          </div>
-          {!creating && (
-            <Button onClick={openCreateForm}>New application</Button>
-          )}
-        </div>
+    <>
+      <PageHeader
+        title="Applications"
+        description="Manage SDK integrations. Each application has a unique API key for ingestion."
+        actions={
+          !creating ? (
+            <Button onClick={openCreateForm}>
+              <Plus />
+              New application
+            </Button>
+          ) : undefined
+        }
+      />
 
-        {creating && (
-          <form
-            onSubmit={handleCreate}
-            className="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
-          >
-            <h2 className="text-base font-medium text-slate-900">New application</h2>
-            <div className="mt-4 flex gap-3">
-              <input
-                ref={inputRef}
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Application name"
-                maxLength={APPLICATION_NAME_MAX_LENGTH}
-                className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                disabled={createLoading}
-              />
-              <Button
-                type="submit"
-                disabled={createLoading || Boolean(validateApplicationName(newName))}
-              >
-                {createLoading ? "Creating…" : "Create"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setCreating(false)}
-                disabled={createLoading}
-              >
-                Cancel
-              </Button>
-            </div>
-            {createError && (
-              <p className="mt-2 text-sm text-red-600">{createError}</p>
-            )}
-          </form>
-        )}
+      {creating && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Create application</CardTitle>
+            <CardDescription>Choose a name your team will recognize in the dashboard.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleCreate} className="flex flex-col gap-4 sm:flex-row sm:items-end">
+              <div className="flex-1 space-y-2">
+                <Label htmlFor="app-name">Name</Label>
+                <Input
+                  ref={inputRef}
+                  id="app-name"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="My product"
+                  maxLength={APPLICATION_NAME_MAX_LENGTH}
+                  disabled={createLoading}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  disabled={createLoading || Boolean(validateApplicationName(newName))}
+                >
+                  {createLoading ? "Creating…" : "Create"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setCreating(false)}
+                  disabled={createLoading}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+            {createError && <p className="mt-3 text-sm text-destructive">{createError}</p>}
+          </CardContent>
+        </Card>
+      )}
 
-        <div className="mt-6">
-          {loading && (
-            <div className="flex items-center justify-center py-20 text-sm text-slate-400">
-              Loading…
-            </div>
-          )}
+      <Card>
+        <CardHeader className="border-b">
+          <CardTitle>All applications</CardTitle>
+          <CardDescription>{apps.length} registered</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loading && <TableLoading rows={4} />}
 
           {!loading && error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-              {error}
+            <div className="p-6">
+              <ErrorState message={error} />
             </div>
           )}
 
           {!loading && !error && apps.length === 0 && (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white py-20 text-center">
-              <p className="text-sm text-slate-500">No applications yet.</p>
-              <button
-                onClick={openCreateForm}
-                className="mt-2 text-sm font-medium text-slate-900 underline-offset-4 hover:underline"
-              >
-                Create your first application
-              </button>
+            <div className="p-6">
+              <EmptyState
+                icon={LayoutGrid}
+                title="No applications yet"
+                description="Create an application to get an API key for SDK and ingestion."
+                action={<EmptyStateButton onClick={openCreateForm}>Create application</EmptyStateButton>}
+              />
             </div>
           )}
 
           {!loading && !error && apps.length > 0 && (
-            <ul className="space-y-3">
-              {apps.map((app) => (
-                <li key={app.id}>
-                  <Link
-                    to={`/applications/${app.id}`}
-                    className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-6 py-4 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="hidden md:table-cell">ID</TableHead>
+                  <TableHead className="text-right">Created</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {apps.map((app) => (
+                  <TableRow
+                    key={app.id}
+                    className="cursor-pointer"
+                    onClick={() => navigate(`/applications/${app.id}`)}
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-3">
-                        <p className="wrap-break-word font-medium text-slate-900">{app.name}</p>
-                        <ApplicationStatusBadge status={app.status} />
-                      </div>
-                      <p className="mt-0.5 font-mono text-xs text-slate-400">{app.id}</p>
-                    </div>
-                    <span className="ml-4 shrink-0 text-xs text-slate-400">
+                    <TableCell>
+                      <span className="font-medium">{app.name}</span>
+                    </TableCell>
+                    <TableCell>
+                      <ApplicationStatusBadge status={app.status} />
+                    </TableCell>
+                    <TableCell className="hidden font-mono text-xs text-muted-foreground md:table-cell">
+                      {app.id}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">
                       {new Date(app.created_at).toLocaleDateString()}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+                    </TableCell>
+                    <TableCell>
+                      <ChevronRight className="size-4 text-muted-foreground" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
-        </div>
-      </div>
-    </div>
+        </CardContent>
+      </Card>
+    </>
   )
 }

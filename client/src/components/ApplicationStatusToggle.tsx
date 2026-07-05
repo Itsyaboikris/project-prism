@@ -1,4 +1,5 @@
 import type { ApplicationStatus } from "@/api/applications"
+import { cn } from "@/lib/utils"
 
 interface Props {
   status: ApplicationStatus
@@ -7,17 +8,25 @@ interface Props {
 }
 
 export function ApplicationStatusToggle({ status, disabled = false, onToggle }: Props) {
+  const isActive = status === "active"
+
   return (
     <button
       type="button"
       role="switch"
-      aria-checked={status === "active"}
+      aria-checked={isActive}
       onClick={onToggle}
-      className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-slate-300 focus:ring-offset-2 ${status === "active" ? "bg-green-500" : "bg-slate-300"}`}
+      className={cn(
+        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30",
+        isActive ? "bg-emerald-500" : "bg-muted-foreground/30",
+      )}
       disabled={disabled}
     >
       <span
-        className={`inline-block size-5 rounded-full bg-white shadow-sm transition-transform ${status === "active" ? "translate-x-6" : "translate-x-1"}`}
+        className={cn(
+          "inline-block size-5 rounded-full bg-card shadow-sm transition-transform",
+          isActive ? "translate-x-6" : "translate-x-1",
+        )}
       />
     </button>
   )

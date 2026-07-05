@@ -1,8 +1,10 @@
 import type { ApplicationStatus } from "@/api/applications"
+import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 
 const styles: Record<ApplicationStatus, string> = {
-  active: "bg-green-100 text-green-700",
-  inactive: "bg-slate-200 text-slate-700",
+  active: "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
+  inactive: "border-border bg-muted/50 text-muted-foreground",
 }
 
 interface Props {
@@ -11,10 +13,8 @@ interface Props {
 
 export function ApplicationStatusBadge({ status }: Props) {
   return (
-    <span
-      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize ${styles[status]}`}
-    >
+    <Badge variant="outline" className={cn("capitalize", styles[status])}>
       {status}
-    </span>
+    </Badge>
   )
 }

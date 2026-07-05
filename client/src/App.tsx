@@ -5,6 +5,7 @@ import ApplicationsPage from "@/pages/ApplicationsPage"
 import ApplicationDetailPage from "@/pages/ApplicationDetailPage"
 import AdminUsersPage from "@/pages/AdminUsersPage"
 import ActivateInvitePage from "@/pages/ActivateInvitePage"
+import CreateExperimentPage from "@/pages/CreateExperimentPage"
 import ExperimentsPage from "@/pages/ExperimentsPage"
 import ExperimentDetailPage from "@/pages/ExperimentDetailPage"
 import ExperimentAssignmentsPage from "@/pages/ExperimentAssignmentsPage"
@@ -24,6 +25,7 @@ export default function App() {
             <Route path="/applications" element={<ApplicationsPage />} />
             <Route path="/applications/:id" element={<ApplicationDetailPage />} />
             <Route path="/applications/:appId/experiments" element={<ExperimentsPage />} />
+            <Route path="/applications/:appId/experiments/new" element={<CreateExperimentPage />} />
             <Route path="/applications/:appId/experiments/:id" element={<ExperimentDetailPage />} />
             <Route
               path="/applications/:appId/experiments/:id/assignments"

@@ -1,10 +1,12 @@
 import type { ExperimentStatus } from "@/api/experiments"
+import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 
 const styles: Record<ExperimentStatus, string> = {
-  draft: "bg-slate-100 text-slate-600",
-  active: "bg-green-100 text-green-700",
-  paused: "bg-yellow-100 text-yellow-700",
-  completed: "bg-blue-100 text-blue-700",
+  draft: "border-border bg-muted/50 text-muted-foreground",
+  active: "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
+  paused: "border-amber-500/20 bg-amber-500/10 text-amber-400",
+  completed: "border-sky-500/20 bg-sky-500/10 text-sky-400",
 }
 
 interface Props {
@@ -13,10 +15,8 @@ interface Props {
 
 export function StatusBadge({ status }: Props) {
   return (
-    <span
-      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize ${styles[status]}`}
-    >
+    <Badge variant="outline" className={cn("capitalize", styles[status])}>
       {status}
-    </span>
+    </Badge>
   )
 }
