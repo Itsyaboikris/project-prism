@@ -35,6 +35,7 @@ func New(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 	expStore := store.NewExperimentStore(pool)
 	branchStore := store.NewBranchStore(pool)
 	assignStore := store.NewAssignmentStore(pool)
+	eventStore := store.NewEventStore(pool)
 	userStore := store.NewUserStore(pool)
 	refreshTokenStore := store.NewRefreshTokenStore(pool)
 	invitationTokenStore := store.NewInvitationTokenStore(pool)
@@ -63,12 +64,14 @@ func New(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 	appHandler := handlers.NewApplicationHandler(appStore)
 	expHandler := handlers.NewExperimentHandler(expStore, branchStore)
 	branchHandler := handlers.NewBranchHandler(branchStore, expStore)
-	assignHandler := handlers.NewAssignmentHandler(assignStore)
+	assignHandler := handlers.NewAssignmentHandler(assignStore, eventStore)
+	eventHandler := handlers.NewEventHandler(eventStore)
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(authService)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.With(apiKeyAuth.RequireAPIKey).Post("/assign", assignHandler.Create)
+		r.With(apiKeyAuth.RequireAPIKey).Post("/events", eventHandler.Create)
 
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/login", authHandler.Login)
@@ -104,6 +107,7 @@ func New(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", expHandler.GetByID)
 					r.Get("/assignments", assignHandler.ListByExperiment)
+					r.Get("/events", eventHandler.ListByExperiment)
 					r.Get("/dashboard", assignHandler.GetExperimentDashboard)
 					r.Put("/", expHandler.Update)
 					r.Delete("/", expHandler.Delete)

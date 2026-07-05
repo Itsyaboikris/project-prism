@@ -20,12 +20,17 @@ type assignmentStore interface {
 	GetExperimentDashboard(ctx context.Context, applicationID, experimentID string) (*models.ExperimentDashboard, error)
 }
 
-type AssignmentHandler struct {
-	store assignmentStore
+type eventMetricsStore interface {
+	GetEventMetricsByExperiment(ctx context.Context, experimentID, eventName string) (map[string]models.EventBranchMetrics, error)
 }
 
-func NewAssignmentHandler(s assignmentStore) *AssignmentHandler {
-	return &AssignmentHandler{store: s}
+type AssignmentHandler struct {
+	store        assignmentStore
+	eventMetrics eventMetricsStore
+}
+
+func NewAssignmentHandler(s assignmentStore, eventMetrics eventMetricsStore) *AssignmentHandler {
+	return &AssignmentHandler{store: s, eventMetrics: eventMetrics}
 }
 
 type assignRequest struct {
@@ -103,6 +108,7 @@ func (h *AssignmentHandler) ListByExperiment(w http.ResponseWriter, r *http.Requ
 func (h *AssignmentHandler) GetExperimentDashboard(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	experimentID := chi.URLParam(r, "id")
+	eventName := strings.TrimSpace(r.URL.Query().Get("event_name"))
 
 	dashboard, err := h.store.GetExperimentDashboard(r.Context(), appID, experimentID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -112,6 +118,24 @@ func (h *AssignmentHandler) GetExperimentDashboard(w http.ResponseWriter, r *htt
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to load experiment dashboard")
 		return
+	}
+
+	if eventName != "" && h.eventMetrics != nil {
+		metrics, err := h.eventMetrics.GetEventMetricsByExperiment(r.Context(), experimentID, eventName)
+		if err != nil {
+			respond.Error(w, http.StatusInternalServerError, "failed to load experiment dashboard")
+			return
+		}
+		dashboard.EventName = eventName
+		for _, branch := range dashboard.Branches {
+			if metric, ok := metrics[branch.BranchID]; ok {
+				branch.EventCount = metric.EventCount
+				branch.UniqueEventUsers = metric.UniqueEventUsers
+				if branch.AssignmentCount > 0 {
+					branch.ConversionRate = (float64(metric.UniqueEventUsers) / float64(branch.AssignmentCount)) * 100
+				}
+			}
+		}
 	}
 
 	respond.JSON(w, http.StatusOK, dashboard)

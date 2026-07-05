@@ -154,6 +154,7 @@ server/
 | `experiments`  | A/B test belonging to an application             |
 | `branches`     | Variants within an experiment with traffic weights |
 | `assignments`  | Tracks which branch a user was assigned to       |
+| `events`       | SDK tracking events with optional experiment/branch attribution |
 | `users`        | Admin accounts used to access the management API |
 | `refresh_tokens` | Rotating refresh tokens for admin sessions     |
 | `invitation_tokens` | One-time activation tokens for invited admins |
@@ -182,6 +183,7 @@ Current routes:
 |--------|------|-------------|
 | `GET`  | `/health` | Service health check |
 | `POST` | `/api/v1/assign` | Assign a user to a branch using the application API key |
+| `POST` | `/api/v1/events` | Record a tracking event using the application API key |
 | `POST` | `/api/v1/auth/login` | Sign in an admin and set the refresh cookie |
 | `POST` | `/api/v1/auth/refresh` | Rotate the refresh cookie and issue a new access token |
 | `POST` | `/api/v1/auth/logout` | Revoke the current refresh token and clear the cookie |
@@ -199,6 +201,9 @@ Current routes:
 | `GET`  | `/api/v1/applications/{appID}/experiments` | List experiments (admin only) |
 | `POST` | `/api/v1/applications/{appID}/experiments` | Create an experiment (admin only) |
 | `GET`  | `/api/v1/applications/{appID}/experiments/{id}` | Get an experiment (admin only) |
+| `GET`  | `/api/v1/applications/{appID}/experiments/{id}/assignments` | List experiment assignments (admin only) |
+| `GET`  | `/api/v1/applications/{appID}/experiments/{id}/events` | List experiment events (admin only) |
+| `GET`  | `/api/v1/applications/{appID}/experiments/{id}/dashboard` | Experiment assignment and conversion dashboard (admin only) |
 | `PUT`  | `/api/v1/applications/{appID}/experiments/{id}` | Update an experiment (admin only) |
 | `DELETE` | `/api/v1/applications/{appID}/experiments/{id}` | Soft-delete an experiment (admin only) |
 | `POST` | `/api/v1/applications/{appID}/experiments/{experimentID}/branches` | Add a branch (admin only) |

@@ -47,7 +47,7 @@ func TestAssignmentHandlerCreateSuccess(t *testing.T) {
 			Weight:       0.7,
 		},
 	}
-	handler := NewAssignmentHandler(store)
+	handler := NewAssignmentHandler(store, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assign", strings.NewReader(`{
 		"user_id": "  user_123  ",
@@ -82,7 +82,7 @@ func TestAssignmentHandlerCreateSuccess(t *testing.T) {
 }
 
 func TestAssignmentHandlerCreateRequiresApplicationContext(t *testing.T) {
-	handler := NewAssignmentHandler(&fakeAssignmentStore{})
+	handler := NewAssignmentHandler(&fakeAssignmentStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assign", strings.NewReader(`{}`))
 	rec := httptest.NewRecorder()
@@ -107,7 +107,7 @@ func TestAssignmentHandlerCreateValidatesBody(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			handler := NewAssignmentHandler(&fakeAssignmentStore{})
+			handler := NewAssignmentHandler(&fakeAssignmentStore{}, nil)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/assign", strings.NewReader(tc.body))
 			req = req.WithContext(apiauth.WithApplication(req.Context(), &models.Application{ID: "app_123"}))
 			rec := httptest.NewRecorder()
@@ -135,7 +135,7 @@ func TestAssignmentHandlerCreateMapsStoreErrors(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			handler := NewAssignmentHandler(&fakeAssignmentStore{assignErr: tc.err})
+			handler := NewAssignmentHandler(&fakeAssignmentStore{assignErr: tc.err}, nil)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/assign", strings.NewReader(`{
 				"user_id":"user_123",
 				"experiment_key":"exp-key"
@@ -170,7 +170,7 @@ func TestAssignmentHandlerListByExperiment(t *testing.T) {
 					},
 				},
 			},
-		})
+		}, nil)
 		rec := httptest.NewRecorder()
 		req := newRequestWithURLParams(http.MethodGet, "/", "", map[string]string{"appID": "app_123", "id": "exp_123"})
 
@@ -190,7 +190,7 @@ func TestAssignmentHandlerListByExperiment(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		handler := NewAssignmentHandler(&fakeAssignmentStore{listErr: store.ErrNotFound})
+		handler := NewAssignmentHandler(&fakeAssignmentStore{listErr: store.ErrNotFound}, nil)
 		rec := httptest.NewRecorder()
 		req := newRequestWithURLParams(http.MethodGet, "/", "", map[string]string{"appID": "app_123", "id": "exp_123"})
 
@@ -202,7 +202,7 @@ func TestAssignmentHandlerListByExperiment(t *testing.T) {
 	})
 
 	t.Run("unexpected", func(t *testing.T) {
-		handler := NewAssignmentHandler(&fakeAssignmentStore{listErr: errors.New("boom")})
+		handler := NewAssignmentHandler(&fakeAssignmentStore{listErr: errors.New("boom")}, nil)
 		rec := httptest.NewRecorder()
 		req := newRequestWithURLParams(http.MethodGet, "/", "", map[string]string{"appID": "app_123", "id": "exp_123"})
 
@@ -235,7 +235,7 @@ func TestAssignmentHandlerGetExperimentDashboard(t *testing.T) {
 					},
 				},
 			},
-		})
+		}, nil)
 		rec := httptest.NewRecorder()
 		req := newRequestWithURLParams(http.MethodGet, "/", "", map[string]string{"appID": "app_123", "id": "exp_123"})
 
@@ -255,7 +255,7 @@ func TestAssignmentHandlerGetExperimentDashboard(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		handler := NewAssignmentHandler(&fakeAssignmentStore{dashboardErr: store.ErrNotFound})
+		handler := NewAssignmentHandler(&fakeAssignmentStore{dashboardErr: store.ErrNotFound}, nil)
 		rec := httptest.NewRecorder()
 		req := newRequestWithURLParams(http.MethodGet, "/", "", map[string]string{"appID": "app_123", "id": "exp_123"})
 
@@ -267,7 +267,7 @@ func TestAssignmentHandlerGetExperimentDashboard(t *testing.T) {
 	})
 
 	t.Run("unexpected", func(t *testing.T) {
-		handler := NewAssignmentHandler(&fakeAssignmentStore{dashboardErr: errors.New("boom")})
+		handler := NewAssignmentHandler(&fakeAssignmentStore{dashboardErr: errors.New("boom")}, nil)
 		rec := httptest.NewRecorder()
 		req := newRequestWithURLParams(http.MethodGet, "/", "", map[string]string{"appID": "app_123", "id": "exp_123"})
 
@@ -277,4 +277,71 @@ func TestAssignmentHandlerGetExperimentDashboard(t *testing.T) {
 			t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, rec.Code)
 		}
 	})
+
+	t.Run("with event metrics", func(t *testing.T) {
+		handler := NewAssignmentHandler(&fakeAssignmentStore{
+			dashboard: &models.ExperimentDashboard{
+				ExperimentID:     "exp_123",
+				ExperimentKey:    "checkout-button-color",
+				ExperimentName:   "Checkout Button Color",
+				ExperimentStatus: models.ExperimentStatusActive,
+				TotalAssignments: 4,
+				BranchCount:      2,
+				Branches: []*models.ExperimentDashboardBranch{
+					{
+						BranchID:         "branch_123",
+						BranchKey:        "control",
+						BranchName:       "Control",
+						ConfiguredWeight: 50,
+						AssignmentCount:  2,
+						AssignmentShare:  50,
+					},
+					{
+						BranchID:         "branch_456",
+						BranchKey:        "variant",
+						BranchName:       "Variant",
+						ConfiguredWeight: 50,
+						AssignmentCount:  2,
+						AssignmentShare:  50,
+					},
+				},
+			},
+		}, &fakeEventMetricsStore{
+			metrics: map[string]models.EventBranchMetrics{
+				"branch_123": {BranchID: "branch_123", EventCount: 3, UniqueEventUsers: 1},
+				"branch_456": {BranchID: "branch_456", EventCount: 2, UniqueEventUsers: 2},
+			},
+		})
+		rec := httptest.NewRecorder()
+		req := newRequestWithURLParams(http.MethodGet, "/?event_name=purchase", "", map[string]string{"appID": "app_123", "id": "exp_123"})
+
+		handler.GetExperimentDashboard(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+		}
+
+		var body models.ExperimentDashboard
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		if body.EventName != "purchase" {
+			t.Fatalf("expected event_name purchase, got %q", body.EventName)
+		}
+		if body.Branches[0].EventCount != 3 || body.Branches[0].UniqueEventUsers != 1 || body.Branches[0].ConversionRate != 50 {
+			t.Fatalf("unexpected control branch metrics: %#v", body.Branches[0])
+		}
+		if body.Branches[1].EventCount != 2 || body.Branches[1].UniqueEventUsers != 2 || body.Branches[1].ConversionRate != 100 {
+			t.Fatalf("unexpected variant branch metrics: %#v", body.Branches[1])
+		}
+	})
+}
+
+type fakeEventMetricsStore struct {
+	metrics map[string]models.EventBranchMetrics
+	err     error
+}
+
+func (f *fakeEventMetricsStore) GetEventMetricsByExperiment(_ context.Context, _, _ string) (map[string]models.EventBranchMetrics, error) {
+	return f.metrics, f.err
 }

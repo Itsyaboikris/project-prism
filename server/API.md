@@ -4,7 +4,7 @@ Base URL: `http://localhost:8080`
 
 All request and response bodies use `application/json`.
 
-SDK-facing assignment requests authenticate with an application API key sent in either the `X-API-Key` header or `Authorization: Bearer <api_key>`.
+SDK-facing assignment and event requests authenticate with an application API key sent in either the `X-API-Key` header or `Authorization: Bearer <api_key>`.
 
 Admin-facing management requests authenticate with a short-lived JWT access token sent as `Authorization: Bearer <access_token>`. Session refresh uses an HttpOnly cookie on the `/api/v1/auth/*` routes.
 
@@ -81,6 +81,68 @@ Returns a branch object:
 | `404`  | Experiment not found for this application |
 | `409`  | Experiment is not active/eligible, or its branches are misconfigured |
 | `422`  | `user_id` or `experiment_key` is missing |
+| `500`  | Database or server error |
+
+---
+
+## Events
+
+SDK-facing event tracking records user actions for analytics and A/B test conversion measurement. Events authenticate with the same application API key as assignment requests.
+
+When `experiment_key` is provided, the server resolves the experiment and looks up the user's existing assignment to attribute the event to a branch. Events are still recorded if no assignment exists, but `branch_id` will be `null`.
+
+### `POST /api/v1/events`
+
+Records a tracking event for the authenticated application.
+
+**Headers**
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `X-API-Key` | yes* | Application API key |
+| `Authorization` | yes* | `Bearer <api_key>` |
+
+\* Provide either `X-API-Key` or `Authorization`.
+
+**Request body**
+```json
+{
+  "user_id": "user_123",
+  "event_name": "purchase",
+  "experiment_key": "checkout-button-color",
+  "properties": { "amount": 49.99 }
+}
+```
+
+| Field            | Required | Description |
+|------------------|----------|-------------|
+| `user_id`        | yes      | Stable unique user identifier |
+| `event_name`     | yes      | Action name, max 64 characters |
+| `experiment_key` | no       | Links the event to an experiment and enables branch attribution |
+| `properties`     | no       | JSON object with extra context, max 4 KB serialized |
+
+**Response `201`**
+```json
+{
+  "id": "018f1e2a-0003-7d8e-9f0a-1b2c3d4e5f6a",
+  "user_id": "user_123",
+  "event_name": "purchase",
+  "experiment_id": "018f1e2a-0001-7d8e-9f0a-1b2c3d4e5f6a",
+  "branch_id": "018f1e2a-0002-7d8e-9f0a-1b2c3d4e5f6a",
+  "properties": { "amount": 49.99 },
+  "occurred_at": "2026-07-05T18:00:00Z"
+}
+```
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `400`  | Request body is not valid JSON |
+| `401`  | API key is missing or invalid |
+| `403`  | Application is inactive |
+| `404`  | `experiment_key` was provided but no matching experiment exists |
+| `422`  | `user_id` or `event_name` is missing or invalid, or `properties` is invalid |
 | `500`  | Database or server error |
 
 ---
@@ -738,6 +800,160 @@ Soft-deletes an experiment and cascades to its branches.
 | `id`      | Experiment UUID      |
 
 **Response `204`** — no body.
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `404`  | Experiment not found or does not belong to this application |
+| `500`  | Database error |
+
+---
+
+### `GET /api/v1/applications/{appID}/experiments/{id}/assignments`
+
+Returns user-to-branch assignments for an experiment.
+
+**Path parameters**
+
+| Parameter | Description      |
+|-----------|------------------|
+| `appID`   | Application UUID |
+| `id`      | Experiment UUID  |
+
+**Response `200`**
+```json
+{
+  "experiment_id": "018f1e2a-0001-7d8e-9f0a-1b2c3d4e5f6a",
+  "experiment_key": "checkout-button-color",
+  "experiment_name": "Checkout Button Color",
+  "experiment_status": "active",
+  "assignments": [
+    {
+      "id": "018f1e2a-0004-7d8e-9f0a-1b2c3d4e5f6a",
+      "application_id": "018f1e2a-0000-7d8e-9f0a-1b2c3d4e5f6a",
+      "experiment_id": "018f1e2a-0001-7d8e-9f0a-1b2c3d4e5f6a",
+      "branch_id": "018f1e2a-0002-7d8e-9f0a-1b2c3d4e5f6a",
+      "user_id": "user_123",
+      "assigned_at": "2026-07-05T18:00:00Z",
+      "context_json": null,
+      "created_at": "2026-07-05T18:00:00Z",
+      "updated_at": "2026-07-05T18:00:00Z",
+      "branch_key": "control",
+      "branch_name": "Control",
+      "branch_weight": 50
+    }
+  ]
+}
+```
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `404`  | Experiment not found or does not belong to this application |
+| `500`  | Database error |
+
+---
+
+### `GET /api/v1/applications/{appID}/experiments/{id}/events`
+
+Returns tracking events recorded for an experiment.
+
+**Path parameters**
+
+| Parameter | Description      |
+|-----------|------------------|
+| `appID`   | Application UUID |
+| `id`      | Experiment UUID  |
+
+**Query parameters**
+
+| Parameter    | Required | Description |
+|--------------|----------|-------------|
+| `event_name` | no       | Filter by event name |
+| `limit`      | no       | Page size, default `100`, max `500` |
+| `offset`     | no       | Page offset, default `0` |
+
+**Response `200`**
+```json
+{
+  "experiment_id": "018f1e2a-0001-7d8e-9f0a-1b2c3d4e5f6a",
+  "experiment_key": "checkout-button-color",
+  "experiment_name": "Checkout Button Color",
+  "experiment_status": "active",
+  "events": [
+    {
+      "id": "018f1e2a-0005-7d8e-9f0a-1b2c3d4e5f6a",
+      "application_id": "018f1e2a-0000-7d8e-9f0a-1b2c3d4e5f6a",
+      "experiment_id": "018f1e2a-0001-7d8e-9f0a-1b2c3d4e5f6a",
+      "branch_id": "018f1e2a-0002-7d8e-9f0a-1b2c3d4e5f6a",
+      "user_id": "user_123",
+      "event_name": "purchase",
+      "properties": { "amount": 49.99 },
+      "occurred_at": "2026-07-05T18:00:00Z",
+      "created_at": "2026-07-05T18:00:00Z",
+      "branch_key": "control",
+      "branch_name": "Control"
+    }
+  ]
+}
+```
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `404`  | Experiment not found or does not belong to this application |
+| `422`  | `limit` or `offset` is invalid |
+| `500`  | Database error |
+
+---
+
+### `GET /api/v1/applications/{appID}/experiments/{id}/dashboard`
+
+Returns assignment distribution for an experiment. When `event_name` is provided, each branch also includes event and conversion metrics for that event.
+
+**Path parameters**
+
+| Parameter | Description      |
+|-----------|------------------|
+| `appID`   | Application UUID |
+| `id`      | Experiment UUID  |
+
+**Query parameters**
+
+| Parameter    | Required | Description |
+|--------------|----------|-------------|
+| `event_name` | no       | Include per-branch event counts and conversion rate for this event |
+
+**Response `200`**
+```json
+{
+  "experiment_id": "018f1e2a-0001-7d8e-9f0a-1b2c3d4e5f6a",
+  "experiment_key": "checkout-button-color",
+  "experiment_name": "Checkout Button Color",
+  "experiment_status": "active",
+  "event_name": "purchase",
+  "total_assignments": 4,
+  "branch_count": 2,
+  "branches": [
+    {
+      "branch_id": "018f1e2a-0002-7d8e-9f0a-1b2c3d4e5f6a",
+      "branch_key": "control",
+      "branch_name": "Control",
+      "configured_weight": 50,
+      "assignment_count": 2,
+      "assignment_share": 50,
+      "event_count": 3,
+      "unique_event_users": 1,
+      "conversion_rate": 50
+    }
+  ]
+}
+```
+
+When `event_name` is omitted, the response matches the assignment-only dashboard shape and omits `event_name`, `event_count`, `unique_event_users`, and `conversion_rate`.
 
 **Error responses**
 
