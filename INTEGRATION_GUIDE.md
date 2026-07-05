@@ -212,6 +212,49 @@ Why:
 - exposing the API key directly in browser code makes it visible to end users
 - a backend proxy gives you better control over auth, caching, retries, and observability
 
+## Local Seed Project
+
+Migration `000011_seed_sample_project` inserts a demo application for local integration testing.
+
+| Field | Value |
+|-------|-------|
+| Application | Demo Store |
+| API key | `prism_demo_api_key` |
+| Experiment key | `checkout-button-color` |
+| Branches | `control` (50%), `variant-a` (50%) |
+| Control users | `user_001` through `user_005` |
+| Variant-a users | `user_006` through `user_008` |
+
+After running `make migrate-up`, you can use these values immediately without creating anything in the admin UI.
+
+## Browser Integration Test Page
+
+The repo includes a small browser test harness:
+
+- `test.html`
+- `test.js`
+
+Prerequisites:
+
+1. Start Postgres and apply migrations: `make db-up && make migrate-up`
+2. Start the Prism server: `make server-dev`
+3. Serve the test page from an allowed CORS origin
+
+```bash
+# From the repo root, serve test.html on an allowed origin
+python3 -m http.server 5500 --bind 127.0.0.1
+```
+
+Then open `http://127.0.0.1:5500/test.html`.
+
+The page is pre-filled with the seeded demo project values. You can:
+
+- click **Assign Branch** to manually test a single user
+- use the seed user shortcuts for `user_001` (control) and `user_006` (variant-a)
+- click **Run Seed Tests** to execute the automated checklist below against the demo data
+
+If you assign `user_006`, the page background should switch to the green theme from `metadata_json`.
+
 ## Testing Checklist
 
 Use this checklist when handing Prism to another team:
@@ -227,12 +270,15 @@ Use this checklist when handing Prism to another team:
 9. Test inactive application handling and confirm `403`.
 10. Test a missing experiment key and confirm `404`.
 
+For local development, `test.html` automates items 3 through 8 against the seeded demo project.
+
 ## Suggested Handoff Package
 
 When giving this to another engineer or team, send them:
 
 - this file: `INTEGRATION_GUIDE.md`
 - the contract reference: `server/API.md`
+- the browser test harness: `test.html` and `test.js`
 - the base URL for the target environment
 - the API key for their application
 - the experiment key they should use

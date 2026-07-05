@@ -45,4 +45,25 @@ npm run lint
 
 ## Current App State
 
-The app is still at the starter stage. It includes the base UI setup and a simple landing screen that can evolve into the Prism dashboard, experiment management views, and reporting flows.
+The admin console supports:
+
+- Application and experiment management
+- Branch editing and experiment status controls
+- Assignment listing per experiment
+- Event listing per experiment with name filtering and pagination
+- Experiment dashboard with assignment distribution and optional conversion metrics by event name
+
+API modules live under `src/api/` and mirror the Go server routes documented in `server/API.md`.
+
+## Routes
+
+| Path | Page |
+|------|------|
+| `/applications` | Application list |
+| `/applications/:id` | Application detail |
+| `/applications/:appId/experiments` | Experiment list |
+| `/applications/:appId/experiments/:id` | Experiment detail |
+| `/applications/:appId/experiments/:id/assignments` | Assignment list |
+| `/applications/:appId/experiments/:id/events` | Event list |
+| `/applications/:appId/experiments/:id/dashboard` | Assignment and conversion dashboard |
+| `/admin/users` | Admin user management |

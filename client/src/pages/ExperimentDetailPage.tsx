@@ -566,6 +566,12 @@ export default function ExperimentDetailPage() {
                       View assignments
                     </Link>
                     <Link
+                      to={`/applications/${appId}/experiments/${id}/events`}
+                      className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50"
+                    >
+                      View events
+                    </Link>
+                    <Link
                       to={`/applications/${appId}/experiments/${id}/dashboard`}
                       className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50"
                     >

@@ -2,6 +2,20 @@
 
 All notable changes to Prism should be documented in this file.
 
+## [Unreleased]
+
+### Added
+- SDK event tracking endpoint at `POST /api/v1/events` for recording user actions with optional experiment and branch attribution
+- Admin event list endpoint at `GET /api/v1/applications/{appID}/experiments/{id}/events`
+- Experiment dashboard conversion metrics via optional `event_name` query parameter on `GET /api/v1/applications/{appID}/experiments/{id}/dashboard`
+- Database migration for the `events` table
+- Sample project seed migration with a demo application, experiment, assignments, and events for local testing
+- Experiment events page in the admin UI with event name filtering and pagination
+- Dashboard conversion metrics UI with optional `event_name` filter and per-branch conversion bars
+
+### Changed
+- Experiment detail, assignments, and dashboard pages now link to the events view
+
 ## [1.0.4] - 2026-07-05
 
 ### Added

@@ -73,12 +73,20 @@ export default function ExperimentAssignmentsPage() {
                   <p className="mt-2 font-mono text-sm text-slate-500">{view.experiment_key}</p>
                 </div>
 
-                <Link
-                  to={`/applications/${appId}/experiments/${id}/dashboard`}
-                  className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50"
-                >
-                  Open dashboard
-                </Link>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    to={`/applications/${appId}/experiments/${id}/dashboard`}
+                    className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50"
+                  >
+                    Open dashboard
+                  </Link>
+                  <Link
+                    to={`/applications/${appId}/experiments/${id}/events`}
+                    className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50"
+                  >
+                    View events
+                  </Link>
+                </div>
               </div>
             </div>
 

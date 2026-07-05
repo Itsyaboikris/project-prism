@@ -31,6 +31,9 @@ export interface ExperimentDashboardBranch {
   configured_weight: number
   assignment_count: number
   assignment_share: number
+  event_count?: number
+  unique_event_users?: number
+  conversion_rate?: number
 }
 
 export interface ExperimentDashboard {
@@ -38,6 +41,7 @@ export interface ExperimentDashboard {
   experiment_key: string
   experiment_name: string
   experiment_status: ExperimentStatus
+  event_name?: string
   total_assignments: number
   branch_count: number
   branches: ExperimentDashboardBranch[]
@@ -49,8 +53,10 @@ export const assignmentsApi = {
       `/api/v1/applications/${appId}/experiments/${experimentId}/assignments`,
     ),
 
-  getExperimentDashboard: (appId: string, experimentId: string) =>
-    api.get<ExperimentDashboard>(
-      `/api/v1/applications/${appId}/experiments/${experimentId}/dashboard`,
-    ),
+  getExperimentDashboard: (appId: string, experimentId: string, eventName?: string) => {
+    const query = eventName ? `?event_name=${encodeURIComponent(eventName)}` : ""
+    return api.get<ExperimentDashboard>(
+      `/api/v1/applications/${appId}/experiments/${experimentId}/dashboard${query}`,
+    )
+  },
 }

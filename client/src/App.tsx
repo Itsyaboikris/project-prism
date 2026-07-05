@@ -9,6 +9,7 @@ import ExperimentsPage from "@/pages/ExperimentsPage"
 import ExperimentDetailPage from "@/pages/ExperimentDetailPage"
 import ExperimentAssignmentsPage from "@/pages/ExperimentAssignmentsPage"
 import ExperimentDashboardPage from "@/pages/ExperimentDashboardPage"
+import ExperimentEventsPage from "@/pages/ExperimentEventsPage"
 import LoginPage from "@/pages/LoginPage"
 
 export default function App() {
@@ -31,6 +32,10 @@ export default function App() {
             <Route
               path="/applications/:appId/experiments/:id/dashboard"
               element={<ExperimentDashboardPage />}
+            />
+            <Route
+              path="/applications/:appId/experiments/:id/events"
+              element={<ExperimentEventsPage />}
             />
             <Route path="/admin/users" element={<AdminUsersPage />} />
           </Route>
