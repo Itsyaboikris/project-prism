@@ -11,6 +11,7 @@ import (
 
 var ErrNotFound = errors.New("record not found")
 var ErrInactive = errors.New("record inactive")
+var ErrUnregisteredEvent = errors.New("event is not registered for this experiment")
 
 type ApplicationStore struct {
 	pool DB

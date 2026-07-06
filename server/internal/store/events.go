@@ -57,6 +57,14 @@ func (s *EventStore) Create(ctx context.Context, p CreateEventParams) (*models.E
 		if assignedBranchID != "" {
 			branchID = &assignedBranchID
 		}
+
+		registered, err := isTrackedEventRegistered(ctx, s.pool, resolvedExperimentID, p.EventName)
+		if err != nil {
+			return nil, err
+		}
+		if !registered {
+			return nil, ErrUnregisteredEvent
+		}
 	}
 
 	const q = `
@@ -262,6 +270,24 @@ func getExperimentIDByKey(ctx context.Context, q queryer, applicationID, experim
 	}
 
 	return experimentID, nil
+}
+
+func isTrackedEventRegistered(ctx context.Context, q queryer, experimentID, key string) (bool, error) {
+	const query = `
+		SELECT EXISTS (
+			SELECT 1
+			FROM tracked_events
+			WHERE experiment_id = $1
+			  AND key = $2
+			  AND deleted_at IS NULL
+		)`
+
+	var exists bool
+	if err := q.QueryRow(ctx, query, experimentID, key).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check tracked event registration: %w", err)
+	}
+
+	return exists, nil
 }
 
 func getAssignedBranchID(ctx context.Context, q queryer, experimentID, userID string) (string, error) {

@@ -197,7 +197,7 @@ Current routes:
 | `POST` | `/api/v1/applications` | Create an application (admin only) |
 | `GET`  | `/api/v1/applications/{id}` | Get an application (admin only) |
 | `PUT`  | `/api/v1/applications/{id}` | Update an application name or status (admin only) |
-| `DELETE` | `/api/v1/applications/{id}` | Soft-delete an application (admin only) |
+| `DELETE` | `/api/v1/applications/{id}` | Deletes an application (admin only) |
 | `GET`  | `/api/v1/applications/{appID}/experiments` | List experiments (admin only) |
 | `POST` | `/api/v1/applications/{appID}/experiments` | Create an experiment (admin only) |
 | `GET`  | `/api/v1/applications/{appID}/experiments/{id}` | Get an experiment (admin only) |
@@ -205,7 +205,7 @@ Current routes:
 | `GET`  | `/api/v1/applications/{appID}/experiments/{id}/events` | List experiment events (admin only) |
 | `GET`  | `/api/v1/applications/{appID}/experiments/{id}/dashboard` | Experiment assignment and conversion dashboard (admin only) |
 | `PUT`  | `/api/v1/applications/{appID}/experiments/{id}` | Update an experiment (admin only) |
-| `DELETE` | `/api/v1/applications/{appID}/experiments/{id}` | Soft-delete an experiment (admin only) |
+| `DELETE` | `/api/v1/applications/{appID}/experiments/{id}` | Delete an experiment (admin only) |
 | `POST` | `/api/v1/applications/{appID}/experiments/{experimentID}/branches` | Add a branch (admin only) |
 | `PUT`  | `/api/v1/applications/{appID}/experiments/{experimentID}/branches/{id}` | Update a branch (admin only) |
-| `DELETE` | `/api/v1/applications/{appID}/experiments/{experimentID}/branches/{id}` | Soft-delete a branch (admin only) |
+| `DELETE` | `/api/v1/applications/{appID}/experiments/{experimentID}/branches/{id}` | Delete a branch (admin only) |

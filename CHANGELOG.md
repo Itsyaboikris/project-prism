@@ -2,7 +2,7 @@
 
 All notable changes to Prism should be documented in this file.
 
-## [Unreleased]
+## [1.0.6] - 2026-07-05
 
 ### Added
 - SDK event tracking endpoint at `POST /api/v1/events` for recording user actions with optional experiment and branch attribution
@@ -12,9 +12,39 @@ All notable changes to Prism should be documented in this file.
 - Sample project seed migration with a demo application, experiment, assignments, and events for local testing
 - Experiment events page in the admin UI with event name filtering and pagination
 - Dashboard conversion metrics UI with optional `event_name` filter and per-branch conversion bars
+- Tracked event definitions per experiment via admin CRUD at `/api/v1/applications/{appID}/experiments/{id}/tracked-events`
+- Database migration for the `tracked_events` table with soft delete and unique active keys per experiment
+- Admin UI for defining, editing, and deleting tracked events on the experiment **Events** tab, with occurrence counts and last-seen timestamps
+- Test event recorder in the admin UI that selects from registered tracked event keys instead of free-text names
+- SDK validation requiring `event_name` to match a registered tracked event key when `experiment_key` is provided on `POST /api/v1/events`
+- Client API module at `client/src/api/trackedEvents.ts`
+- Browser integration test harness in `test.html` and `test.js` for assignment and event recording
 
 ### Changed
+- Sample project seed migration moved to `000012` so schema migrations always run before seed data; seed now inserts tracked event definitions before event occurrences
+- `ExperimentEventsPanel` split into tracked event definitions, test recording, and recorded occurrences sections
 - Experiment detail, assignments, and dashboard pages now link to the events view
+- `INTEGRATION_GUIDE.md` and `server/API.md` updated for event tracking, tracked events, and SDK validation
+
+### Fixed
+- Migration ordering issue where databases that had applied the old version-11 seed could skip `tracked_events` table creation; re-run with `migrate force 10` then `migrate up` if `/tracked-events` returns 500
+
+## [1.0.5] - 2026-07-05
+
+### Added
+- Sonner toasts, shadcn alert-dialog and select components, and Geist Mono for monospace UI text
+- `ConfirmDeleteDialog` and `useApplication` shared hooks/components
+- Dedicated create experiment page at `/applications/:appId/experiments/new` with auto-generated keys from experiment names
+- Lucide icons on page actions, tabs, table rows, and empty states across admin pages
+- Inline API key copy control with temporary checkmark feedback on success
+
+### Changed
+- Application detail page reorganized into tabs: Overview, Experiments, API key, and Danger zone
+- Experiment detail page reorganized into tabs: Settings, Branches, Events, and Danger zone
+- Experiment status toggle restored on experiment detail header; list rows navigate on click with chevron affordance
+- Experiment create flow moved out of a side sheet into a dedicated page
+- Delete confirmations replaced `window.confirm` with accessible alert dialogs
+- CRUD, copy, and invite actions now surface success and error feedback via toasts
 
 ## [1.0.4] - 2026-07-05
 

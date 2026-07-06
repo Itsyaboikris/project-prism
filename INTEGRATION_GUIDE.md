@@ -6,17 +6,18 @@ It is intentionally implementation-focused. For the full backend contract, see `
 
 ## Overview
 
-Prism v1 exposes one intended SDK-facing endpoint:
+Prism v1 exposes two SDK-facing endpoints:
 
-- `POST /api/v1/assign`
+- `POST /api/v1/assign` — returns the branch a user should see for a specific experiment
+- `POST /api/v1/events` — records a user action for analytics and conversion measurement
 
-This endpoint returns the branch a user should see for a specific experiment.
-
-The assignment is:
+Assignment is:
 
 - authenticated by application API key
 - deterministic for a given `user_id`
 - sticky across repeated requests for the same user and experiment
+
+Event tracking is also authenticated by application API key. When `experiment_key` is provided, the server attributes the occurrence to the user's assigned branch and requires that `event_name` matches a tracked event registered on that experiment in the admin UI.
 
 ## When To Call Prism
 
@@ -37,6 +38,7 @@ Before another team can test integration, make sure you provide them:
 - an application API key
 - the experiment key they should request
 - at least one active experiment with active branches configured in Prism
+- tracked event keys registered on that experiment (required before sending `POST /api/v1/events` with `experiment_key`)
 
 ## Endpoint
 
@@ -135,6 +137,89 @@ Expected responses:
 - `422`: `user_id` or `experiment_key` missing
 - `500`: server or database error
 
+## Event Tracking
+
+Use `POST /api/v1/events` to record user actions such as clicks, sign-ups, or purchases.
+
+### Register tracked events first
+
+In the Prism admin UI (experiment **Events** tab), define the events you want to measure. Each definition has:
+
+- **key** — sent as `event_name` from your application
+- **name** — display label in the admin UI
+- **description** — optional notes
+
+When `experiment_key` is included on an event request, `event_name` must match one of these registered keys. Occurrences without `experiment_key` are not validated against tracked events.
+
+### `POST /api/v1/events`
+
+Records a single event occurrence for the authenticated application.
+
+#### Headers
+
+Same as assignment: `X-API-Key` or `Authorization: Bearer <api_key>`.
+
+#### Request body
+
+```json
+{
+  "user_id": "user_123",
+  "event_name": "purchase",
+  "experiment_key": "checkout-button-color",
+  "properties": { "amount": 49.99 }
+}
+```
+
+| Field            | Required | Description |
+|------------------|----------|-------------|
+| `user_id`        | yes      | Stable unique user identifier |
+| `event_name`     | yes      | Tracked event key (max 64 characters) |
+| `experiment_key` | no       | Links the occurrence to an experiment and enables branch attribution |
+| `properties`     | no       | JSON object with extra context, max 4 KB |
+
+#### Response `201`
+
+```json
+{
+  "id": "018f1e2a-0003-7d8e-9f0a-1b2c3d4e5f6a",
+  "user_id": "user_123",
+  "event_name": "purchase",
+  "experiment_id": "018f1e2a-0001-7d8e-9f0a-1b2c3d4e5f6a",
+  "branch_id": "018f1e2a-0002-7d8e-9f0a-1b2c3d4e5f6a",
+  "properties": { "amount": 49.99 },
+  "occurred_at": "2026-07-05T18:00:00Z"
+}
+```
+
+#### Error responses
+
+| Status | Condition |
+|--------|-----------|
+| `400`  | Invalid JSON body |
+| `401`  | Missing or invalid API key |
+| `403`  | Application is inactive |
+| `404`  | `experiment_key` was provided but no matching experiment exists |
+| `422`  | Missing/invalid fields, or `event_name` is not registered for the experiment |
+| `500`  | Server or database error |
+
+#### Minimal example
+
+```ts
+await fetch("http://localhost:8080/api/v1/events", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-API-Key": PRISM_API_KEY,
+  },
+  body: JSON.stringify({
+    user_id: userId,
+    event_name: "purchase",
+    experiment_key: "checkout-button-color",
+    properties: { amount: 49.99 },
+  }),
+})
+```
+
 ## Minimal Browser Example
 
 ```ts
@@ -214,7 +299,7 @@ Why:
 
 ## Local Seed Project
 
-Migration `000011_seed_sample_project` inserts a demo application for local integration testing.
+Migration `000012_seed_sample_project` inserts a demo application for local integration testing.
 
 | Field | Value |
 |-------|-------|
@@ -222,6 +307,7 @@ Migration `000011_seed_sample_project` inserts a demo application for local inte
 | API key | `prism_demo_api_key` |
 | Experiment key | `checkout-button-color` |
 | Branches | `control` (50%), `variant-a` (50%) |
+| Tracked events | `button_click`, `purchase` |
 | Control users | `user_001` through `user_005` |
 | Variant-a users | `user_006` through `user_008` |
 
@@ -252,6 +338,7 @@ The page is pre-filled with the seeded demo project values. You can:
 - click **Assign Branch** to manually test a single user
 - use the seed user shortcuts for `user_001` (control) and `user_006` (variant-a)
 - click **Run Seed Tests** to execute the automated checklist below against the demo data
+- record a **Purchase** or **Button click** event for a seed user in the event tracking panel
 
 If you assign `user_006`, the page background should switch to the green theme from `metadata_json`.
 
@@ -269,8 +356,10 @@ Use this checklist when handing Prism to another team:
 8. Test invalid API key handling and confirm `401`.
 9. Test inactive application handling and confirm `403`.
 10. Test a missing experiment key and confirm `404`.
+11. Call `POST /api/v1/events` with a registered event key (`purchase`) and confirm `201`.
+12. Call `POST /api/v1/events` with an unregistered event key and confirm `422`.
 
-For local development, `test.html` automates items 3 through 8 against the seeded demo project.
+For local development, `test.html` automates items 3 through 12 against the seeded demo project.
 
 ## Suggested Handoff Package
 
@@ -286,6 +375,9 @@ When giving this to another engineer or team, send them:
 
 ## Current v1 Scope
 
-In Prism v1, `POST /api/v1/assign` is the intended public integration surface.
+In Prism v1, the intended public integration surface is:
 
-Administrative CRUD endpoints for applications, experiments, and branches also exist on the server, but they are part of the Prism admin surface rather than the recommended external integration path.
+- `POST /api/v1/assign` for branch assignment
+- `POST /api/v1/events` for event tracking
+
+Administrative CRUD endpoints for applications, experiments, branches, and tracked events also exist on the server, but they are part of the Prism admin surface rather than the recommended external integration path.

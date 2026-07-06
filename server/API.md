@@ -89,7 +89,7 @@ Returns a branch object:
 
 SDK-facing event tracking records user actions for analytics and A/B test conversion measurement. Events authenticate with the same application API key as assignment requests.
 
-When `experiment_key` is provided, the server resolves the experiment and looks up the user's existing assignment to attribute the event to a branch. Events are still recorded if no assignment exists, but `branch_id` will be `null`.
+When `experiment_key` is provided, the server resolves the experiment and looks up the user's existing assignment to attribute the event to a branch. Events are still recorded if no assignment exists, but `branch_id` will be `null`. The `event_name` must match a registered tracked event key for that experiment.
 
 ### `POST /api/v1/events`
 
@@ -142,7 +142,7 @@ Records a tracking event for the authenticated application.
 | `401`  | API key is missing or invalid |
 | `403`  | Application is inactive |
 | `404`  | `experiment_key` was provided but no matching experiment exists |
-| `422`  | `user_id` or `event_name` is missing or invalid, or `properties` is invalid |
+| `422`  | `user_id` or `event_name` is missing or invalid, `properties` is invalid, or `event_name` is not registered for the experiment when `experiment_key` is provided |
 | `500`  | Database or server error |
 
 ---
@@ -403,7 +403,7 @@ An application is the top-level entity in Prism. Each application has a unique A
 
 Applications also have a lifecycle `status`: `active` applications behave normally, while `inactive` applications remain visible but cannot create new experiments.
 
-Records are soft-deleted: `DELETE` sets `deleted_at` rather than removing the row. Soft-deleted applications are excluded from all reads and cascade soft-delete to their experiments and branches. Assignment history is preserved.
+Records are Deleted: `DELETE` sets `deleted_at` rather than removing the row. Deleted applications are excluded from all reads and cascade Delete to their experiments and branches. Assignment history is preserved.
 
 ### Application object
 
@@ -558,7 +558,7 @@ Updates an existing application. The `api_key` cannot be changed.
 
 ### `DELETE /api/v1/applications/{id}`
 
-Soft-deletes an application and cascades to its experiments and branches.
+Deletes an application and cascades to its experiments and branches.
 
 **Path parameters**
 
@@ -593,7 +593,7 @@ All error responses use the same structure:
 
 An experiment belongs to an application and represents a single A/B test. Each experiment has a unique `key` within its application (among active records), a `status` representing its lifecycle, and optional date bounds.
 
-Soft-deleted experiments are excluded from reads. Deleting an experiment also soft-deletes its branches. Experiment keys can be reused after deletion. New experiments can only be created while the parent application is `active`.
+Deleted experiments are excluded from reads. Deleting an experiment also deletes its branches. Experiment keys can be reused after deletion. New experiments can only be created while the parent application is `active`.
 
 ### Experiment object
 
@@ -790,7 +790,7 @@ Updates a experiment. `key` cannot be changed after creation.
 
 ### `DELETE /api/v1/applications/{appID}/experiments/{id}`
 
-Soft-deletes an experiment and cascades to its branches.
+Deletes an experiment and cascades to its branches.
 
 **Path parameters**
 
@@ -906,6 +906,127 @@ Returns tracking events recorded for an experiment.
 |--------|-----------|
 | `404`  | Experiment not found or does not belong to this application |
 | `422`  | `limit` or `offset` is invalid |
+| `500`  | Database error |
+
+---
+
+### `GET /api/v1/applications/{appID}/experiments/{id}/tracked-events`
+
+Returns event definitions registered for an experiment, including occurrence counts and last occurrence timestamps.
+
+**Path parameters**
+
+| Parameter | Description      |
+|-----------|------------------|
+| `appID`   | Application UUID |
+| `id`      | Experiment UUID  |
+
+**Response `200`**
+```json
+[
+  {
+    "id": "018f1e2a-0004-7d8e-9f0a-1b2c3d4e5f6a",
+    "experiment_id": "018f1e2a-0001-7d8e-9f0a-1b2c3d4e5f6a",
+    "key": "button_click",
+    "name": "Button Click",
+    "description": "User clicked the primary CTA",
+    "occurrence_count": 42,
+    "last_occurred_at": "2026-07-05T18:00:00Z",
+    "created_at": "2026-07-05T12:00:00Z",
+    "updated_at": "2026-07-05T12:00:00Z"
+  }
+]
+```
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `404`  | Experiment not found or does not belong to this application |
+| `500`  | Database error |
+
+---
+
+### `POST /api/v1/applications/{appID}/experiments/{id}/tracked-events`
+
+Creates a tracked event definition for an experiment. The `key` is sent as `event_name` when recording occurrences via the SDK.
+
+**Request body**
+```json
+{
+  "key": "button_click",
+  "name": "Button Click",
+  "description": "User clicked the primary CTA"
+}
+```
+
+| Field         | Required | Description |
+|---------------|----------|-------------|
+| `key`         | yes      | Stable identifier, max 64 characters, immutable after create |
+| `name`        | yes      | Display name, max 64 characters |
+| `description` | no       | Optional notes, max 280 characters |
+
+**Response `201`**
+```json
+{
+  "id": "018f1e2a-0004-7d8e-9f0a-1b2c3d4e5f6a",
+  "experiment_id": "018f1e2a-0001-7d8e-9f0a-1b2c3d4e5f6a",
+  "key": "button_click",
+  "name": "Button Click",
+  "description": "User clicked the primary CTA",
+  "occurrence_count": 0,
+  "last_occurred_at": null,
+  "created_at": "2026-07-05T12:00:00Z",
+  "updated_at": "2026-07-05T12:00:00Z"
+}
+```
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `404`  | Experiment not found or does not belong to this application |
+| `409`  | A tracked event with the same `key` already exists for this experiment |
+| `422`  | Required fields are missing or invalid |
+| `500`  | Database error |
+
+---
+
+### `PUT /api/v1/applications/{appID}/experiments/{id}/tracked-events/{trackedEventID}`
+
+Updates a tracked event definition. Only `name` and `description` can be changed.
+
+**Request body**
+```json
+{
+  "name": "Primary Button Click",
+  "description": "Updated description"
+}
+```
+
+**Response `200`** — same shape as create response.
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `404`  | Experiment or tracked event not found |
+| `422`  | Required fields are missing or invalid |
+| `500`  | Database error |
+
+---
+
+### `DELETE /api/v1/applications/{appID}/experiments/{id}/tracked-events/{trackedEventID}`
+
+Soft-deletes a tracked event definition.
+
+**Response `204`** — no body.
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `404`  | Experiment or tracked event not found |
 | `500`  | Database error |
 
 ---
@@ -1077,7 +1198,7 @@ Updates a branch. `key` cannot be changed.
 
 ### `DELETE /api/v1/applications/{appID}/experiments/{experimentID}/branches/{id}`
 
-Soft-deletes a branch.
+Deletes a branch.
 
 **Path parameters**
 

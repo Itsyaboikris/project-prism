@@ -61,6 +61,18 @@ func TestEventStoreCreateWithExperimentAndAssignment(t *testing.T) {
 		WithArgs("exp_123", "user_123").
 		WillReturnRows(assignmentRows)
 
+	trackedEventRows := pgxmock.NewRows([]string{"exists"}).AddRow(true)
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM tracked_events
+			WHERE experiment_id = $1
+			  AND key = $2
+			  AND deleted_at IS NULL
+		)`)).
+		WithArgs("exp_123", "purchase").
+		WillReturnRows(trackedEventRows)
+
 	properties := json.RawMessage(`{"amount":49.99}`)
 	insertRows := pgxmock.NewRows([]string{
 		"id", "application_id", "experiment_id", "branch_id", "user_id", "event_name", "properties_json", "occurred_at", "created_at",
@@ -87,6 +99,51 @@ func TestEventStoreCreateWithExperimentAndAssignment(t *testing.T) {
 	}
 	if got.BranchID == nil || *got.BranchID != "branch_123" {
 		t.Fatalf("expected branch id branch_123, got %#v", got.BranchID)
+	}
+}
+
+func TestEventStoreCreateUnregisteredEvent(t *testing.T) {
+	mock := newMockPool(t)
+	store := NewEventStore(mock)
+
+	experimentRows := pgxmock.NewRows([]string{"id"}).AddRow("exp_123")
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT id
+		FROM experiments
+		WHERE application_id = $1 AND key = $2 AND deleted_at IS NULL`)).
+		WithArgs("app_123", "checkout-button-color").
+		WillReturnRows(experimentRows)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT a.branch_id
+		FROM assignments a
+		JOIN branches b ON b.id = a.branch_id
+		WHERE a.experiment_id = $1
+		  AND a.user_id = $2
+		  AND b.deleted_at IS NULL`)).
+		WithArgs("exp_123", "user_123").
+		WillReturnError(pgx.ErrNoRows)
+
+	trackedEventRows := pgxmock.NewRows([]string{"exists"}).AddRow(false)
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM tracked_events
+			WHERE experiment_id = $1
+			  AND key = $2
+			  AND deleted_at IS NULL
+		)`)).
+		WithArgs("exp_123", "purchase").
+		WillReturnRows(trackedEventRows)
+
+	_, err := store.Create(context.Background(), CreateEventParams{
+		ApplicationID: "app_123",
+		UserID:        "user_123",
+		EventName:     "purchase",
+		ExperimentKey: "checkout-button-color",
+	})
+	if !errors.Is(err, ErrUnregisteredEvent) {
+		t.Fatalf("expected ErrUnregisteredEvent, got %v", err)
 	}
 }
 

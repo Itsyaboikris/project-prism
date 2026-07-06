@@ -76,6 +76,10 @@ func (h *EventHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusNotFound, "experiment not found")
 		return
 	}
+	if errors.Is(err, store.ErrUnregisteredEvent) {
+		respond.Error(w, http.StatusUnprocessableEntity, "event_name is not registered for this experiment")
+		return
+	}
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to create event")
 		return
