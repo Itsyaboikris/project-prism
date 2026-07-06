@@ -8,6 +8,7 @@ import {
   type TrackedEvent,
 } from "@/api/trackedEvents"
 import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog"
+import { TrackedEventOccurrenceChart } from "@/components/charts/TrackedEventOccurrenceChart"
 import { EmptyState } from "@/components/EmptyState"
 import { ErrorState } from "@/components/ErrorState"
 import { TableLoading } from "@/components/PageLoading"
@@ -545,6 +546,23 @@ export function ExperimentEventsPanel({
           )}
         </CardContent>
       </Card>
+
+      {trackedEvents.some((event) => event.occurrence_count > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Occurrences by event</CardTitle>
+            <CardDescription>
+              Click a bar to filter recorded occurrences below.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TrackedEventOccurrenceChart
+              trackedEvents={trackedEvents}
+              onSelectEvent={filterByTrackedEvent}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
